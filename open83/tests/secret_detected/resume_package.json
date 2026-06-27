@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0.0",
+  "document_version": "v1.0.0",
+  "package_id": "OPEN-83-TEST-SECRET-DETECTED-001",
+  "generated_at": "2026-06-27T09:00:00Z",
+  "owner": "Arkonex Inc.",
+  "language": "fr-CA",
+  "profile": "erpnext_frappe",
+  "work_context": {
+    "open_id": "OPEN-83",
+    "lot_id": "OPEN-83-GIT-G-SECRET-DETECTED",
+    "title": "Expected NO_GO fixture because evidence contains an intentional fake secret pattern.",
+    "intent": "Validator fixture test case",
+    "environment": "dev",
+    "risk": "R1",
+    "type": "diagnostic",
+    "unit": "Expected NO_GO fixture because evidence contains an intentional fake secret pattern.",
+    "scope_in": [
+      "fixture secret_detected"
+    ],
+    "scope_out": [
+      "production execution",
+      "ERPNext write",
+      "secret exposure"
+    ]
+  },
+  "state_summary": {
+    "current_state": "Fixture secret_detected for validate_resume_package.py.",
+    "last_known_good_state": "Fixture generated from valid smoke-test template.",
+    "known_failures": [],
+    "open_questions": []
+  },
+  "runtime_ownership": {
+    "map_status": "pending",
+    "components": [
+      {
+        "id": "secret_detected_fixture_component",
+        "layer": "frontend",
+        "owner": "arkonex_estimate",
+        "runtime_state": "pending",
+        "evidence_ids": [
+          "FEO_SECRET"
+        ]
+      }
+    ]
+  },
+  "contracts": {
+    "backend_api": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ],
+      "issues": []
+    },
+    "frontend_ux": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ],
+      "issues": []
+    },
+    "data_model": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ],
+      "issues": []
+    },
+    "rollback": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ],
+      "issues": []
+    }
+  },
+  "qa": {
+    "qa_status": "pending",
+    "results": [
+      {
+        "id": "QA-SECRET_DETECTED",
+        "status": "pending",
+        "summary": "Expected NO_GO fixture because evidence contains an intentional fake secret pattern.",
+        "evidence_ids": [
+          "FEO_SECRET"
+        ]
+      }
+    ]
+  },
+  "git_and_runtime": {
+    "repos": [
+      {
+        "repo": "arkonex-devops-tools",
+        "branch": "test/open-83-validator-fixtures",
+        "commit": "{{COMMIT_HASH}}",
+        "dirty": false
+      }
+    ],
+    "runtime_targets": [
+      "local-windows"
+    ]
+  },
+  "decisions": [
+    {
+      "id": "DEC-SECRET_DETECTED",
+      "decision": "Use fixture secret_detected to validate expected validator behavior.",
+      "reason": "Test fixture, not operational evidence.",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ]
+    }
+  ],
+  "next_action": {
+    "mode": "read_only",
+    "description": "Expected NO_GO fixture because evidence contains an intentional fake secret pattern.",
+    "requires_human_go": false,
+    "evidence_ids": [
+      "FEO_SECRET"
+    ]
+  },
+  "do_not_do": [
+    {
+      "id": "DND-SECRET_DETECTED",
+      "action": "Do not use this fixture as operational OPEN evidence.",
+      "reason": "This is validator test data only."
+    }
+  ],
+  "evidence": {
+    "items": [
+      {
+        "id": "FEO_SECRET",
+        "type": "final_essential_output",
+        "ref": "tests/secret_detected/evidence/final_essential_output.txt",
+        "description": "Expected NO_GO fixture because evidence contains an intentional fake secret pattern."
+      }
+    ],
+    "final_essential_output_ref": "tests/secret_detected/evidence/final_essential_output.txt"
+  },
+  "validation": {
+    "no_secret_plaintext": true,
+    "required_refs_present": true,
+    "resume_ready": true,
+    "validator_version": "1.0.0",
+    "checked_at": null
+  },
+  "erpnext_frappe": {
+    "bench_path": "{{BENCH_PATH}}",
+    "site": "{{SITE_NAME}}",
+    "meta_verified": false,
+    "fieldnames_verified": false,
+    "rb15_dependency_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ]
+    },
+    "rb25_invariant_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ]
+    },
+    "rb82_determinism_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SECRET"
+      ]
+    }
+  }
+}

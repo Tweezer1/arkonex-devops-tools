@@ -1,0 +1,5 @@
+===== FINAL ESSENTIAL OUTPUT =====
+fixture=hash_conflict
+expected_decision=STOP_CONFLICT
+evidence_status=present
+secret_plaintext=false

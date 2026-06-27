@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0.0",
+  "document_version": "v1.0.0",
+  "package_id": "OPEN-83-TEST-HASH-CONFLICT-001",
+  "generated_at": "2026-06-27T09:00:00Z",
+  "owner": "Arkonex Inc.",
+  "language": "fr-CA",
+  "profile": "erpnext_frappe",
+  "work_context": {
+    "open_id": "OPEN-83",
+    "lot_id": "OPEN-83-GIT-G-HASH-CONFLICT",
+    "title": "Expected STOP_CONFLICT fixture because pre-existing lock hash differs.",
+    "intent": "Validator fixture test case",
+    "environment": "dev",
+    "risk": "R1",
+    "type": "diagnostic",
+    "unit": "Expected STOP_CONFLICT fixture because pre-existing lock hash differs.",
+    "scope_in": [
+      "fixture hash_conflict"
+    ],
+    "scope_out": [
+      "production execution",
+      "ERPNext write",
+      "secret exposure"
+    ]
+  },
+  "state_summary": {
+    "current_state": "Fixture hash_conflict for validate_resume_package.py.",
+    "last_known_good_state": "Fixture generated from valid smoke-test template.",
+    "known_failures": [],
+    "open_questions": []
+  },
+  "runtime_ownership": {
+    "map_status": "pending",
+    "components": [
+      {
+        "id": "hash_conflict_fixture_component",
+        "layer": "frontend",
+        "owner": "arkonex_estimate",
+        "runtime_state": "pending",
+        "evidence_ids": [
+          "FEO_HASH_CONFLICT"
+        ]
+      }
+    ]
+  },
+  "contracts": {
+    "backend_api": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ],
+      "issues": []
+    },
+    "frontend_ux": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ],
+      "issues": []
+    },
+    "data_model": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ],
+      "issues": []
+    },
+    "rollback": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ],
+      "issues": []
+    }
+  },
+  "qa": {
+    "qa_status": "pending",
+    "results": [
+      {
+        "id": "QA-HASH_CONFLICT",
+        "status": "pending",
+        "summary": "Expected STOP_CONFLICT fixture because pre-existing lock hash differs.",
+        "evidence_ids": [
+          "FEO_HASH_CONFLICT"
+        ]
+      }
+    ]
+  },
+  "git_and_runtime": {
+    "repos": [
+      {
+        "repo": "arkonex-devops-tools",
+        "branch": "test/open-83-validator-fixtures",
+        "commit": "{{COMMIT_HASH}}",
+        "dirty": false
+      }
+    ],
+    "runtime_targets": [
+      "local-windows"
+    ]
+  },
+  "decisions": [
+    {
+      "id": "DEC-HASH_CONFLICT",
+      "decision": "Use fixture hash_conflict to validate expected validator behavior.",
+      "reason": "Test fixture, not operational evidence.",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ]
+    }
+  ],
+  "next_action": {
+    "mode": "read_only",
+    "description": "Expected STOP_CONFLICT fixture because pre-existing lock hash differs.",
+    "requires_human_go": false,
+    "evidence_ids": [
+      "FEO_HASH_CONFLICT"
+    ]
+  },
+  "do_not_do": [
+    {
+      "id": "DND-HASH_CONFLICT",
+      "action": "Do not use this fixture as operational OPEN evidence.",
+      "reason": "This is validator test data only."
+    }
+  ],
+  "evidence": {
+    "items": [
+      {
+        "id": "FEO_HASH_CONFLICT",
+        "type": "final_essential_output",
+        "ref": "tests/hash_conflict/evidence/final_essential_output.txt",
+        "description": "Expected STOP_CONFLICT fixture because pre-existing lock hash differs."
+      }
+    ],
+    "final_essential_output_ref": "tests/hash_conflict/evidence/final_essential_output.txt"
+  },
+  "validation": {
+    "no_secret_plaintext": true,
+    "required_refs_present": true,
+    "resume_ready": true,
+    "validator_version": "1.0.0",
+    "checked_at": null
+  },
+  "erpnext_frappe": {
+    "bench_path": "{{BENCH_PATH}}",
+    "site": "{{SITE_NAME}}",
+    "meta_verified": false,
+    "fieldnames_verified": false,
+    "rb15_dependency_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ]
+    },
+    "rb25_invariant_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ]
+    },
+    "rb82_determinism_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_HASH_CONFLICT"
+      ]
+    }
+  }
+}

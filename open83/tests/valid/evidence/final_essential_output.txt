@@ -1,0 +1,5 @@
+===== FINAL ESSENTIAL OUTPUT =====
+fixture=valid
+expected_decision=GO
+evidence_status=present
+secret_plaintext=false
