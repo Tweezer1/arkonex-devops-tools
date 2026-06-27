@@ -1,24 +1,67 @@
 # OPEN-83-GIT-G — Validator fixture test runner
 # Non-destructive fixture runner. Expected return codes are part of the test contract.
+# Cross-platform: Windows PowerShell / PowerShell Core on Ubuntu GitHub Actions.
 
 $ErrorActionPreference = "Stop"
 
-$RepoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+$RepoRoot = (Resolve-Path (Join-Path (Join-Path $PSScriptRoot "..") "..")).Path
 Set-Location $RepoRoot
 
-$Python = ".\.venv\Scripts\python.exe"
-if (!(Test-Path $Python)) {
+$Open83Dir = Join-Path $RepoRoot "open83"
+$TestsDir = Join-Path $Open83Dir "tests"
+$PackagesDir = Join-Path $Open83Dir "packages"
+
+$WindowsVenvPython = Join-Path (Join-Path (Join-Path $RepoRoot ".venv") "Scripts") "python.exe"
+$UnixVenvPython = Join-Path (Join-Path (Join-Path $RepoRoot ".venv") "bin") "python"
+
+if (Test-Path $WindowsVenvPython) {
+    $Python = $WindowsVenvPython
+} elseif (Test-Path $UnixVenvPython) {
+    $Python = $UnixVenvPython
+} else {
     $Python = "python"
 }
 
-$Validator = "open83\tools\validate_resume_package.py"
-$Schema = "open83\schemas\resume_package.schema.v1.0.0.json"
+$Validator = Join-Path (Join-Path $Open83Dir "tools") "validate_resume_package.py"
+$Schema = Join-Path (Join-Path $Open83Dir "schemas") "resume_package.schema.v1.0.0.json"
 
 $cases = @(
-    @{ Name="valid"; Package="open83\tests\valid\resume_package.json"; OutDir="open83\packages\fixture-valid"; ExpectedRc=0; ExpectedDecision="decision=GO"; ExpectedNeedle="errors=0" },
-    @{ Name="missing_file"; Package="open83\tests\missing_file\resume_package.json"; OutDir="open83\packages\fixture-missing-file"; ExpectedRc=10; ExpectedDecision="decision=NO_GO"; ExpectedNeedle="missing_required_files=1" },
-    @{ Name="secret_detected"; Package="open83\tests\secret_detected\resume_package.json"; OutDir="open83\packages\fixture-secret-detected"; ExpectedRc=10; ExpectedDecision="decision=NO_GO"; ExpectedNeedle="secret_scan_failures=1" },
-    @{ Name="hash_conflict"; Package="open83\tests\hash_conflict\resume_package.json"; OutDir="open83\tests\hash_conflict"; ExpectedRc=20; ExpectedDecision="decision=STOP_CONFLICT"; ExpectedNeedle="errors=1" }
+    @{
+        Name="valid"
+        Package=(Join-Path (Join-Path $TestsDir "valid") "resume_package.json")
+        OutDir=(Join-Path $PackagesDir "fixture-valid")
+        CleanMode="package"
+        ExpectedRc=0
+        ExpectedDecision="decision=GO"
+        ExpectedNeedle="errors=0"
+    },
+    @{
+        Name="missing_file"
+        Package=(Join-Path (Join-Path $TestsDir "missing_file") "resume_package.json")
+        OutDir=(Join-Path $PackagesDir "fixture-missing-file")
+        CleanMode="package"
+        ExpectedRc=10
+        ExpectedDecision="decision=NO_GO"
+        ExpectedNeedle="missing_required_files=1"
+    },
+    @{
+        Name="secret_detected"
+        Package=(Join-Path (Join-Path $TestsDir "secret_detected") "resume_package.json")
+        OutDir=(Join-Path $PackagesDir "fixture-secret-detected")
+        CleanMode="package"
+        ExpectedRc=10
+        ExpectedDecision="decision=NO_GO"
+        ExpectedNeedle="secret_scan_failures=1"
+    },
+    @{
+        Name="hash_conflict"
+        Package=(Join-Path (Join-Path $TestsDir "hash_conflict") "resume_package.json")
+        OutDir=(Join-Path $TestsDir "hash_conflict")
+        CleanMode="fixture_lock"
+        ExpectedRc=20
+        ExpectedDecision="decision=STOP_CONFLICT"
+        ExpectedNeedle="errors=1"
+    }
 )
 
 $passed = 0
@@ -27,7 +70,7 @@ $failed = 0
 foreach ($case in $cases) {
     Write-Host "===== FIXTURE CASE: $($case.Name) ====="
 
-    if ($case.OutDir -like "open83\packages\*") {
+    if ($case.CleanMode -eq "package") {
         if (Test-Path $case.OutDir) {
             Remove-Item -Recurse -Force $case.OutDir
         }
@@ -43,7 +86,7 @@ foreach ($case in $cases) {
     $output = & $Python $Validator `
         --package $case.Package `
         --schema $Schema `
-        --root-dir open83 `
+        --root-dir $Open83Dir `
         --out-dir $case.OutDir 2>&1
 
     $rc = $LASTEXITCODE
@@ -51,14 +94,17 @@ foreach ($case in $cases) {
     $output | ForEach-Object { Write-Host $_ }
 
     $ok = $true
+
     if ($rc -ne $case.ExpectedRc) {
         Write-Host "FIXTURE_FAIL: unexpected return code. expected=$($case.ExpectedRc) actual=$rc"
         $ok = $false
     }
+
     if ($text -notlike "*$($case.ExpectedDecision)*") {
         Write-Host "FIXTURE_FAIL: missing expected decision $($case.ExpectedDecision)"
         $ok = $false
     }
+
     if ($text -notlike "*$($case.ExpectedNeedle)*") {
         Write-Host "FIXTURE_FAIL: missing expected marker $($case.ExpectedNeedle)"
         $ok = $false
@@ -77,9 +123,11 @@ Write-Host "===== FIXTURE TEST ESSENTIAL OUTPUT ====="
 Write-Host "tests_total=$($cases.Count)"
 Write-Host "tests_passed=$passed"
 Write-Host "tests_failed=$failed"
+
 if ($failed -eq 0) {
     Write-Host "go_no_go=GO_FIXTURES_VALIDATED"
     exit 0
 }
+
 Write-Host "go_no_go=NO_GO_FIXTURES_FAILED"
 exit 10
