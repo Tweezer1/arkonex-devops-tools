@@ -1,11 +1,12 @@
-﻿# OPEN-83 — deterministic text files across Windows/Linux CI
+# OPEN-83 deterministic text files across Windows/Linux CI
 * text=auto
 
-*.py     text eol=lf
-*.json   text eol=lf
-*.yml    text eol=lf
-*.yaml   text eol=lf
-*.md     text eol=lf
-*.txt    text eol=lf
-*.ps1    text eol=lf
+.gitattributes text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.ps1 text eol=lf
 *.gitignore text eol=lf
