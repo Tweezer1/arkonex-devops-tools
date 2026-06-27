@@ -31,3 +31,6 @@ open83/packages/*
 *.pfx
 id_rsa
 id_ed25519
+
+# OPEN-83-GIT-G test fixture exception
+!open83/tests/hash_conflict/resume_package.lock.json

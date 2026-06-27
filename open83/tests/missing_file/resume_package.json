@@ -1,0 +1,170 @@
+{
+  "schema_version": "1.0.0",
+  "document_version": "v1.0.0",
+  "package_id": "OPEN-83-TEST-MISSING-FILE-001",
+  "generated_at": "2026-06-27T09:00:00Z",
+  "owner": "Arkonex Inc.",
+  "language": "fr-CA",
+  "profile": "erpnext_frappe",
+  "work_context": {
+    "open_id": "OPEN-83",
+    "lot_id": "OPEN-83-GIT-G-MISSING-FILE",
+    "title": "Expected NO_GO fixture because required evidence file is missing.",
+    "intent": "Validator fixture test case",
+    "environment": "dev",
+    "risk": "R1",
+    "type": "diagnostic",
+    "unit": "Expected NO_GO fixture because required evidence file is missing.",
+    "scope_in": [
+      "fixture missing_file"
+    ],
+    "scope_out": [
+      "production execution",
+      "ERPNext write",
+      "secret exposure"
+    ]
+  },
+  "state_summary": {
+    "current_state": "Fixture missing_file for validate_resume_package.py.",
+    "last_known_good_state": "Fixture generated from valid smoke-test template.",
+    "known_failures": [],
+    "open_questions": []
+  },
+  "runtime_ownership": {
+    "map_status": "pending",
+    "components": [
+      {
+        "id": "missing_file_fixture_component",
+        "layer": "frontend",
+        "owner": "arkonex_estimate",
+        "runtime_state": "pending",
+        "evidence_ids": [
+          "FEO_MISSING"
+        ]
+      }
+    ]
+  },
+  "contracts": {
+    "backend_api": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ],
+      "issues": []
+    },
+    "frontend_ux": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ],
+      "issues": []
+    },
+    "data_model": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ],
+      "issues": []
+    },
+    "rollback": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ],
+      "issues": []
+    }
+  },
+  "qa": {
+    "qa_status": "pending",
+    "results": [
+      {
+        "id": "QA-MISSING_FILE",
+        "status": "pending",
+        "summary": "Expected NO_GO fixture because required evidence file is missing.",
+        "evidence_ids": [
+          "FEO_MISSING"
+        ]
+      }
+    ]
+  },
+  "git_and_runtime": {
+    "repos": [
+      {
+        "repo": "arkonex-devops-tools",
+        "branch": "test/open-83-validator-fixtures",
+        "commit": "{{COMMIT_HASH}}",
+        "dirty": false
+      }
+    ],
+    "runtime_targets": [
+      "local-windows"
+    ]
+  },
+  "decisions": [
+    {
+      "id": "DEC-MISSING_FILE",
+      "decision": "Use fixture missing_file to validate expected validator behavior.",
+      "reason": "Test fixture, not operational evidence.",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ]
+    }
+  ],
+  "next_action": {
+    "mode": "read_only",
+    "description": "Expected NO_GO fixture because required evidence file is missing.",
+    "requires_human_go": false,
+    "evidence_ids": [
+      "FEO_MISSING"
+    ]
+  },
+  "do_not_do": [
+    {
+      "id": "DND-MISSING_FILE",
+      "action": "Do not use this fixture as operational OPEN evidence.",
+      "reason": "This is validator test data only."
+    }
+  ],
+  "evidence": {
+    "items": [
+      {
+        "id": "FEO_MISSING",
+        "type": "final_essential_output",
+        "ref": "tests/missing_file/evidence/final_essential_output_missing.txt",
+        "description": "Expected NO_GO fixture because required evidence file is missing."
+      }
+    ],
+    "final_essential_output_ref": "tests/missing_file/evidence/final_essential_output_missing.txt"
+  },
+  "validation": {
+    "no_secret_plaintext": true,
+    "required_refs_present": true,
+    "resume_ready": true,
+    "validator_version": "1.0.0",
+    "checked_at": null
+  },
+  "erpnext_frappe": {
+    "bench_path": "{{BENCH_PATH}}",
+    "site": "{{SITE_NAME}}",
+    "meta_verified": false,
+    "fieldnames_verified": false,
+    "rb15_dependency_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ]
+    },
+    "rb25_invariant_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ]
+    },
+    "rb82_determinism_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_MISSING"
+      ]
+    }
+  }
+}

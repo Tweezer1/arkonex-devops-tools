@@ -1,0 +1,5 @@
+===== FINAL ESSENTIAL OUTPUT =====
+fixture=secret_detected
+expected_decision=NO_GO
+intentional_fake_secret_for_validator_test=true
+password=DEMO_NOT_A_REAL_SECRET_12345

@@ -1,0 +1,11 @@
+{
+  "lock_version": "1.0.0",
+  "package_id": "OPEN-83-TEST-HASH-CONFLICT-001",
+  "canonical_key": "resume_package|OPEN-83|OPEN-83-GIT-G-HASH-CONFLICT|erpnext_frappe|dev|v1.0.0",
+  "canonical_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+  "locked_at": "2026-06-27T09:00:00Z",
+  "lock_state": "SOFT_LOCKED",
+  "rerun_policy": "REUSE_IF_HASH_MATCH_STOP_IF_DIFFERS",
+  "supersedes": null,
+  "superseded_by": null
+}
