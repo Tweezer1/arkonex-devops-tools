@@ -1,0 +1,33 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+env/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Logs and generated outputs
+*.log
+validation_report.json
+resume_package.manifest.json
+resume_package.lock.json
+
+# Local packages / working evidence
+open83/packages/*
+!open83/packages/.gitkeep
+
+# Secrets / environment
+.env
+*.pem
+*.key
+*.p12
+*.pfx
+id_rsa
+id_ed25519

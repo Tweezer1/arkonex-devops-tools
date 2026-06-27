@@ -1,0 +1,752 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://arkonex.local/schemas/open83/resume_package.schema.v1.0.0.json",
+  "title": "OPEN-83 Resume Package",
+  "description": "Schéma machine-readable v1.0.0 pour paquet de reprise IA / runtime ownership.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "document_version",
+    "package_id",
+    "generated_at",
+    "owner",
+    "language",
+    "profile",
+    "work_context",
+    "state_summary",
+    "runtime_ownership",
+    "contracts",
+    "qa",
+    "git_and_runtime",
+    "decisions",
+    "next_action",
+    "do_not_do",
+    "evidence",
+    "validation"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "document_version": {
+      "type": "string",
+      "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+$"
+    },
+    "package_id": {
+      "type": "string",
+      "minLength": 3
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "owner": {
+      "type": "string",
+      "minLength": 2
+    },
+    "language": {
+      "type": "string",
+      "enum": [
+        "fr",
+        "fr-CA",
+        "en",
+        "en-CA"
+      ]
+    },
+    "profile": {
+      "type": "string",
+      "enum": [
+        "generic",
+        "erpnext_frappe",
+        "n8n",
+        "script_cli",
+        "api_frontend"
+      ]
+    },
+    "work_context": {
+      "$ref": "#/$defs/work_context"
+    },
+    "state_summary": {
+      "$ref": "#/$defs/state_summary"
+    },
+    "runtime_ownership": {
+      "$ref": "#/$defs/runtime_ownership"
+    },
+    "contracts": {
+      "$ref": "#/$defs/contracts"
+    },
+    "qa": {
+      "$ref": "#/$defs/qa"
+    },
+    "git_and_runtime": {
+      "$ref": "#/$defs/git_and_runtime"
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/decision"
+      }
+    },
+    "next_action": {
+      "$ref": "#/$defs/next_action"
+    },
+    "do_not_do": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/forbidden_action"
+      }
+    },
+    "evidence": {
+      "$ref": "#/$defs/evidence"
+    },
+    "validation": {
+      "$ref": "#/$defs/validation"
+    },
+    "erpnext_frappe": {
+      "$ref": "#/$defs/erpnext_frappe"
+    },
+    "n8n": {
+      "$ref": "#/$defs/n8n"
+    },
+    "script_cli": {
+      "$ref": "#/$defs/script_cli"
+    },
+    "api_frontend": {
+      "$ref": "#/$defs/api_frontend"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "erpnext_frappe"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "erpnext_frappe"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "n8n"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "n8n"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "script_cli"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "script_cli"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "profile": {
+            "const": "api_frontend"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "api_frontend"
+        ]
+      }
+    }
+  ],
+  "$defs": {
+    "risk": {
+      "type": "string",
+      "enum": [
+        "R0",
+        "R1",
+        "R2",
+        "R3"
+      ]
+    },
+    "environment": {
+      "type": "string",
+      "enum": [
+        "dev",
+        "test",
+        "staging",
+        "pre-stage",
+        "prod",
+        "design",
+        "local",
+        "unknown"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "not_applicable",
+        "pending",
+        "passed",
+        "failed",
+        "blocked",
+        "warning"
+      ]
+    },
+    "go_no_go": {
+      "type": "string",
+      "enum": [
+        "GO",
+        "NO_GO",
+        "STOP_CONFLICT",
+        "INTERNAL_ERROR",
+        "PENDING"
+      ]
+    },
+    "evidence_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_ids": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/evidence_id"
+      },
+      "uniqueItems": true
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "severity",
+        "summary",
+        "status"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": [
+            "info",
+            "warning",
+            "blocking",
+            "critical"
+          ]
+        },
+        "summary": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/evidence_ids"
+        }
+      }
+    },
+    "work_context": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "open_id",
+        "lot_id",
+        "title",
+        "intent",
+        "environment",
+        "risk",
+        "unit"
+      ],
+      "properties": {
+        "open_id": {
+          "type": "string"
+        },
+        "lot_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "intent": {
+          "type": "string"
+        },
+        "environment": {
+          "$ref": "#/$defs/environment"
+        },
+        "risk": {
+          "$ref": "#/$defs/risk"
+        },
+        "type": {
+          "type": "string"
+        },
+        "unit": {
+          "type": "string"
+        },
+        "scope_in": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "scope_out": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "state_summary": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "current_state",
+        "last_known_good_state",
+        "known_failures",
+        "open_questions"
+      ],
+      "properties": {
+        "current_state": {
+          "type": "string"
+        },
+        "last_known_good_state": {
+          "type": "string"
+        },
+        "known_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        },
+        "open_questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "runtime_component": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "layer",
+        "owner",
+        "runtime_state",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "layer": {
+          "type": "string"
+        },
+        "owner": {
+          "type": "string"
+        },
+        "runtime_state": {
+          "$ref": "#/$defs/status"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/evidence_ids"
+        }
+      }
+    },
+    "runtime_ownership": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "map_status",
+        "components"
+      ],
+      "properties": {
+        "map_status": {
+          "$ref": "#/$defs/status"
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/runtime_component"
+          }
+        }
+      }
+    },
+    "contract_status": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "status",
+        "evidence_ids",
+        "issues"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/evidence_ids"
+        },
+        "issues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/issue"
+          }
+        }
+      }
+    },
+    "contracts": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "backend_api",
+        "frontend_ux",
+        "data_model",
+        "rollback"
+      ],
+      "properties": {
+        "backend_api": {
+          "$ref": "#/$defs/contract_status"
+        },
+        "frontend_ux": {
+          "$ref": "#/$defs/contract_status"
+        },
+        "data_model": {
+          "$ref": "#/$defs/contract_status"
+        },
+        "rollback": {
+          "$ref": "#/$defs/contract_status"
+        }
+      }
+    },
+    "qa_result": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "status",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "summary": {
+          "type": "string"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/evidence_ids"
+        }
+      }
+    },
+    "qa": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "qa_status",
+        "results"
+      ],
+      "properties": {
+        "qa_status": {
+          "$ref": "#/$defs/status"
+        },
+        "results": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/qa_result"
+          }
+        }
+      }
+    },
+    "repo_state": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "repo",
+        "branch",
+        "commit",
+        "dirty"
+      ],
+      "properties": {
+        "repo": {
+          "type": "string"
+        },
+        "branch": {
+          "type": "string"
+        },
+        "commit": {
+          "type": "string"
+        },
+        "dirty": {
+          "type": "boolean"
+        }
+      }
+    },
+    "git_and_runtime": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "repos",
+        "runtime_targets"
+      ],
+      "properties": {
+        "repos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/repo_state"
+          }
+        },
+        "runtime_targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "decision",
+        "reason",
+        "evidence_ids"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/evidence_ids"
+        }
+      }
+    },
+    "next_action": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "mode",
+        "description",
+        "requires_human_go",
+        "evidence_ids"
+      ],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "read_only",
+            "diagnostic",
+            "canary_patch",
+            "controlled_execution",
+            "rollback",
+            "repair",
+            "closure"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "requires_human_go": {
+          "type": "boolean"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/evidence_ids"
+        }
+      }
+    },
+    "forbidden_action": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "action",
+        "reason"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "action": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        }
+      }
+    },
+    "evidence_item": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "id",
+        "type",
+        "ref",
+        "description"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/evidence_id"
+        },
+        "type": {
+          "type": "string"
+        },
+        "ref": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "sha256": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-fA-F0-9]{64}$"
+        }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "items",
+        "final_essential_output_ref"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence_item"
+          },
+          "minItems": 1
+        },
+        "final_essential_output_ref": {
+          "type": "string"
+        }
+      }
+    },
+    "validation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "no_secret_plaintext",
+        "required_refs_present",
+        "resume_ready"
+      ],
+      "properties": {
+        "no_secret_plaintext": {
+          "type": "boolean"
+        },
+        "required_refs_present": {
+          "type": "boolean"
+        },
+        "resume_ready": {
+          "type": "boolean"
+        },
+        "validator_version": {
+          "type": "string"
+        },
+        "checked_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        }
+      }
+    },
+    "profile_check": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "evidence_ids": {
+          "$ref": "#/$defs/evidence_ids"
+        }
+      }
+    },
+    "erpnext_frappe": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "bench_path",
+        "site",
+        "meta_verified",
+        "fieldnames_verified",
+        "rb15_dependency_check",
+        "rb25_invariant_check",
+        "rb82_determinism_check"
+      ],
+      "properties": {
+        "bench_path": {
+          "type": "string"
+        },
+        "site": {
+          "type": "string"
+        },
+        "meta_verified": {
+          "type": "boolean"
+        },
+        "fieldnames_verified": {
+          "type": "boolean"
+        },
+        "rb15_dependency_check": {
+          "$ref": "#/$defs/profile_check"
+        },
+        "rb25_invariant_check": {
+          "$ref": "#/$defs/profile_check"
+        },
+        "rb82_determinism_check": {
+          "$ref": "#/$defs/profile_check"
+        }
+      }
+    },
+    "n8n": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "script_cli": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "api_frontend": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}

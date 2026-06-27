@@ -1,0 +1,33 @@
+{
+  "manifest_version": "1.0.0",
+  "package_id": "OPEN-073-K12-A-RESUME-SAMPLE-001",
+  "canonical_key": "resume_package|OPEN-073|OPEN-073-K12-A|erpnext_frappe|pre-stage|v1.0.0",
+  "canonical_hash": "{{GENERATED_BY_VALIDATOR}}",
+  "generated_at": "{{GENERATED_AT}}",
+  "root_dir": "{{ROOT_DIR}}",
+  "files": [
+    {
+      "id": "FEO_SAMPLE",
+      "path": "templates/evidence/final_essential_output.txt",
+      "required": true,
+      "exists": true,
+      "status": "present",
+      "size_bytes": 170,
+      "sha256": "{{SHA256}}",
+      "non_empty": true,
+      "secret_scan_status": "passed"
+    }
+  ],
+  "summary": {
+    "files_total": 1,
+    "required_files_total": 1,
+    "required_files_present": 1,
+    "missing_required_files": 0,
+    "empty_required_files": 0,
+    "hash_mismatches": 0,
+    "secret_scan_failures": 0,
+    "read_errors": 0,
+    "path_errors": 0
+  },
+  "manifest_go_no_go": "GO"
+}

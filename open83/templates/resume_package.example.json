@@ -1,0 +1,174 @@
+{
+  "schema_version": "1.0.0",
+  "document_version": "v1.0.0",
+  "package_id": "OPEN-073-K12-A-RESUME-SAMPLE-001",
+  "generated_at": "2026-06-27T08:30:00Z",
+  "owner": "Arkonex Inc.",
+  "language": "fr-CA",
+  "profile": "erpnext_frappe",
+  "work_context": {
+    "open_id": "OPEN-073",
+    "lot_id": "OPEN-073-K12-A",
+    "title": "Runtime ownership audit sample",
+    "intent": "ERPNext/Frappe runtime ownership mapping before patch",
+    "environment": "pre-stage",
+    "risk": "R1",
+    "type": "diagnostic",
+    "unit": "map current runtime ownership before any patch",
+    "scope_in": [
+      "read-only runtime ownership map",
+      "contract skeleton"
+    ],
+    "scope_out": [
+      "ERPNext DB write",
+      "code patch",
+      "git commit",
+      "git push"
+    ]
+  },
+  "state_summary": {
+    "current_state": "Sample package ready for validator smoke test.",
+    "last_known_good_state": "No runtime mutation performed.",
+    "known_failures": [],
+    "open_questions": [
+      "Replace sample values with real run evidence before operational use."
+    ]
+  },
+  "runtime_ownership": {
+    "map_status": "pending",
+    "components": [
+      {
+        "id": "composition_builder_js",
+        "layer": "frontend",
+        "owner": "arkonex_estimate",
+        "runtime_state": "pending",
+        "evidence_ids": [
+          "FEO_SAMPLE"
+        ]
+      }
+    ]
+  },
+  "contracts": {
+    "backend_api": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ],
+      "issues": []
+    },
+    "frontend_ux": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ],
+      "issues": []
+    },
+    "data_model": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ],
+      "issues": []
+    },
+    "rollback": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ],
+      "issues": []
+    }
+  },
+  "qa": {
+    "qa_status": "pending",
+    "results": [
+      {
+        "id": "QA-SMOKE-SAMPLE",
+        "status": "pending",
+        "summary": "Validator smoke-test sample only.",
+        "evidence_ids": [
+          "FEO_SAMPLE"
+        ]
+      }
+    ]
+  },
+  "git_and_runtime": {
+    "repos": [
+      {
+        "repo": "arkonex_estimate",
+        "branch": "version-16",
+        "commit": "{{COMMIT_HASH}}",
+        "dirty": false
+      }
+    ],
+    "runtime_targets": [
+      "site1.local"
+    ]
+  },
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "decision": "Use OPEN-83 package before continuing patch work.",
+      "reason": "Avoid inter-chat context loss and runtime ownership ambiguity.",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ]
+    }
+  ],
+  "next_action": {
+    "mode": "read_only",
+    "description": "Replace sample evidence with real package evidence, then rerun validator.",
+    "requires_human_go": true,
+    "evidence_ids": [
+      "FEO_SAMPLE"
+    ]
+  },
+  "do_not_do": [
+    {
+      "id": "DND-001",
+      "action": "Do not patch ERPNext/Frappe from this sample package.",
+      "reason": "This is a smoke-test template, not operational evidence."
+    }
+  ],
+  "evidence": {
+    "items": [
+      {
+        "id": "FEO_SAMPLE",
+        "type": "final_essential_output",
+        "ref": "templates/evidence/final_essential_output.txt",
+        "description": "Sample final essential output for validator smoke test."
+      }
+    ],
+    "final_essential_output_ref": "templates/evidence/final_essential_output.txt"
+  },
+  "validation": {
+    "no_secret_plaintext": true,
+    "required_refs_present": true,
+    "resume_ready": true,
+    "validator_version": "1.0.0",
+    "checked_at": null
+  },
+  "erpnext_frappe": {
+    "bench_path": "/home/frappe/frappe-bench",
+    "site": "site1.local",
+    "meta_verified": false,
+    "fieldnames_verified": false,
+    "rb15_dependency_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ]
+    },
+    "rb25_invariant_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ]
+    },
+    "rb82_determinism_check": {
+      "status": "pending",
+      "evidence_ids": [
+        "FEO_SAMPLE"
+      ]
+    }
+  }
+}

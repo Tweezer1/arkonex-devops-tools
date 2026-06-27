@@ -1,0 +1,11 @@
+{
+  "lock_version": "1.0.0",
+  "package_id": "OPEN-073-K12-A-RESUME-SAMPLE-001",
+  "canonical_key": "resume_package|OPEN-073|OPEN-073-K12-A|erpnext_frappe|pre-stage|v1.0.0",
+  "canonical_hash": "{{GENERATED_BY_VALIDATOR}}",
+  "locked_at": "{{GENERATED_AT}}",
+  "lock_state": "SOFT_LOCKED",
+  "rerun_policy": "REUSE_IF_HASH_MATCH_STOP_IF_DIFFERS",
+  "supersedes": null,
+  "superseded_by": null
+}

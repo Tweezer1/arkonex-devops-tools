@@ -1,0 +1,7 @@
+===== FINAL ESSENTIAL OUTPUT =====
+open_id=OPEN-073
+lot_id=OPEN-073-K12-A
+status=GO_SAMPLE_EVIDENCE
+runtime_ownership_map=sample_only
+secret_values_printed=false
+next_action=read_only_contract_review
