@@ -97,6 +97,7 @@ COMMON_SCRIPTS=(
     "$CBQ_DIR/auth/refresh-persona.sh"
     "$CBQ_DIR/auth/playwright-login.mjs"
     "$CBQ_DIR/auth/validate-storage-state.mjs"
+    "$CBQ_DIR/auth/browser-canary.mjs"
     "$CBQ_DIR/lib/simple_yaml.py"
     "$CBQ_DIR/lib/resolve_persona_field.py"
     "$CBQ_DIR/lib/list_enabled_personas.py"
@@ -384,6 +385,22 @@ fi
 grep -q 'source "\$CREDENTIALS_PATH"' "$CBQ_DIR/auth/refresh-persona.sh" && rc=1
 grep -q "grep -m1 '\^BROWSER_QA_PASSWORD=' \"\$CREDENTIALS_PATH\" | cut -d= -f2-" "$CBQ_DIR/auth/refresh-persona.sh" || rc=1
 check "T29_credential_parsing_survives_special_characters" "$rc"
+
+echo "### T30 -- node --check syntax on every .mjs helper (including the new credential-free canary)"
+rc=0
+for f in "$CBQ_DIR/auth/playwright-login.mjs" "$CBQ_DIR/auth/validate-storage-state.mjs" "$CBQ_DIR/auth/browser-canary.mjs"; do
+    node --check "$f" || rc=1
+done
+check "T30_mjs_syntax" "$rc"
+
+echo "### T31 -- browser-canary.mjs is genuinely credential-free (diagnostic isolation guarantee)"
+rc=0
+CANARY_FILE="$CBQ_DIR/auth/browser-canary.mjs"
+if grep -Eq 'BROWSER_QA_USER_ID|BROWSER_QA_PASSWORD|\.goto\(|fetch\(|deverp\.arkonex\.ca' "$CANARY_FILE"; then
+    echo "  browser-canary.mjs references a credential, a real navigation, or a real site -- diagnostic isolation broken"
+    rc=1
+fi
+check "T31_browser_canary_credential_free" "$rc"
 
 echo
 echo "=================================================="
