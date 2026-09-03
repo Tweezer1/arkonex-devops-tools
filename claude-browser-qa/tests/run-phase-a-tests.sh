@@ -402,6 +402,21 @@ if grep -Eq 'BROWSER_QA_USER_ID|BROWSER_QA_PASSWORD|\.goto\(|fetch\(|deverp\.ark
 fi
 check "T31_browser_canary_credential_free" "$rc"
 
+echo "### T32 -- playwright-login.mjs now surfaces err.message (Phase B diagnosis fix), but never interpolates the actual secret-holding variables into a console.* call"
+rc=0
+LOGIN_FILE="$CBQ_DIR/auth/playwright-login.mjs"
+grep -q 'err.message' "$LOGIN_FILE" || rc=1
+# Precise risk: template-literal interpolation of the variables that HOLD the secret
+# VALUES (userId/password) inside a console.* call -- distinct from the pre-existing,
+# safe line that only names the env var KEYS as a literal string when they're missing.
+while IFS= read -r line; do
+    if echo "$line" | grep -Eq '\$\{(userId|password)\}'; then
+        echo "  console.* line interpolates a secret-holding variable: $line"
+        rc=1
+    fi
+done < <(grep -E 'console\.(log|error)' "$LOGIN_FILE")
+check "T32_playwright_login_error_message_never_leaks_credentials" "$rc"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"

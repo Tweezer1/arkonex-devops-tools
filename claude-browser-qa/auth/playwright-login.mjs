@@ -87,6 +87,12 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(`playwright-login: unexpected error (${err.constructor.name})`);
+  // err.message is safe to print here: it is a Playwright-internal diagnostic string
+  // (timeout, target closed, protocol error, selector not found, etc.) -- this script
+  // never interpolates userId/password into any string it constructs, and Playwright's
+  // own errors never echo back page/form content. Printing only err.constructor.name
+  // (the prior behaviour) made every real failure indistinguishable from every other,
+  // which is what stalled diagnosis of the Phase B activation PlaywrightError.
+  console.error(`playwright-login: unexpected error (${err.constructor.name}): ${err.message}`);
   process.exitCode = 1;
 });
