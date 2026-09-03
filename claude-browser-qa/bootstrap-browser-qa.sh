@@ -162,6 +162,15 @@ cmd_generate_config() {
     fi
 
     mv -f "$candidate" "$target"
+    # mktemp creates the candidate at mode 0600 owned by whoever ran this command, and mv
+    # preserves that mode/owner verbatim -- if this command is invoked via sudo (a
+    # reasonable thing to do, since every OTHER subcommand in this script needs root),
+    # the activated .mcp.json ends up unreadable by the frappe user whose Claude Code
+    # process is the one actually consuming it (real bug, found during Phase B
+    # activation canary). This file carries no secret (paths and pinned CLI args only --
+    # never a credential, enforced by generate-mcp-config.py's own contract), so making it
+    # world-readable is safe regardless of which user activates it.
+    chmod 0644 "$target"
     log "generate-config: activated ${target}"
 
     # Post-check: re-read and hash-compare is redundant with mv's atomicity guarantee,

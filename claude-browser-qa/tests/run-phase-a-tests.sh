@@ -417,6 +417,26 @@ while IFS= read -r line; do
 done < <(grep -E 'console\.(log|error)' "$LOGIN_FILE")
 check "T32_playwright_login_error_message_never_leaks_credentials" "$rc"
 
+echo "### T33 -- generate-config --apply activates a world-readable .mcp.json even under a restrictive umask (Phase B activation bug: sudo -> mktemp 0600 -> mv preserved it, frappe couldn't read its own MCP config)"
+rc=0
+T33_TARGET_DIR="$TMP_ROOT/t33-bench-root"
+mkdir -p "$T33_TARGET_DIR"
+(
+    umask 077
+    CLAUDE_BENCH_ROOT="$T33_TARGET_DIR" bash "$CBQ_DIR/bootstrap-browser-qa.sh" generate-config --apply \
+        --storage-state-dir "$TMP_ROOT/storage-states" --target "$T33_TARGET_DIR/.mcp.json" >/dev/null
+)
+if [[ ! -f "$T33_TARGET_DIR/.mcp.json" ]]; then
+    rc=1
+else
+    T33_MODE="$(stat -c '%a' "$T33_TARGET_DIR/.mcp.json")"
+    if [[ "$T33_MODE" != "644" ]]; then
+        echo "  activated .mcp.json has mode ${T33_MODE}, expected 644 -- unreadable to a different user under a restrictive umask"
+        rc=1
+    fi
+fi
+check "T33_generated_config_world_readable_regardless_of_umask" "$rc"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"
