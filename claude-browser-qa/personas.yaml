@@ -1,0 +1,44 @@
+# claude-browser-qa/personas.yaml
+#
+# Manifeste versionne, SANS SECRET, des personas E2E Browser QA (OPEN-125, Issue #87).
+# Source unique de verite pour : la generation de .mcp.json, les instances systemd
+# templatees (browser-qa-refresh@<persona>), et verify-browser-qa.sh.
+#
+# AUCUN script commun ne doit referencer un nom de persona en dur -- tout passe par ce
+# fichier. Ajouter une persona = ajouter une entree ici, jamais modifier un script.
+#
+# Format restreint (voir lib/simple_yaml.py) : uniquement des mappings a deux niveaux,
+# valeurs scalaires (chaine/bool), pas de listes, pas d'ancres, pas de multi-documents.
+#
+# Champs par persona :
+#   enabled              bool   - si false, ignoree par toute generation/activation
+#   display_name         str    - libelle humain, pour logs/README uniquement
+#   login_user_id        str    - identifiant fonctionnel du compte E2E (PAS un secret --
+#                                 deja visible cote client par le cookie non-HttpOnly
+#                                 "user_id" observe lors du diagnostic OPEN-125)
+#   expected_role        str    - documentaire uniquement. Browser QA VERIFIE les droits,
+#                                 ne les DEFINIT jamais. Ne cree/modifie aucun role Frappe.
+#   credentials_file     str    - nom de fichier relatif (pas un chemin absolu) sous le
+#                                 repertoire credentials commun (voir bootstrap)
+#   storage_state_file   str    - nom de fichier relatif sous le repertoire storage-states
+#                                 commun (voir bootstrap)
+#   mcp_server_name      str    - nom de l'entree generee dans .mcp.json
+
+personas:
+  estimate_user:
+    enabled: true
+    display_name: "Estimate User (canary)"
+    login_user_id: "e2e-tests@arkonex.ca"
+    expected_role: "Estimate User"
+    credentials_file: "estimate_user.env"
+    storage_state_file: "estimate_user.json"
+    mcp_server_name: "playwright-estimate_user"
+
+  estimate_manager:
+    enabled: true
+    display_name: "Estimate Manager (canary)"
+    login_user_id: "e2e-estimate-manager@arkonex.ca"
+    expected_role: "Estimate Manager"
+    credentials_file: "estimate_manager.env"
+    storage_state_file: "estimate_manager.json"
+    mcp_server_name: "playwright-estimate_manager"

@@ -1,0 +1,37 @@
+{
+  "//": [
+    "Reference example only -- illustrates the exact shape generate-mcp-config.py",
+    "produces from personas.yaml. Not consumed directly as a Jinja/mustache template:",
+    "the generator builds this structure programmatically so that a malformed persona",
+    "can abort generation entirely instead of leaving a half-substituted template.",
+    "One 'playwright-<persona>' entry per persona with enabled: true in personas.yaml.",
+    "MCP package version is pinned (never @latest). No --secrets anywhere -- the MCP",
+    "server must never be configured with any path to a credentials file."
+  ],
+  "mcpServers": {
+    "playwright-estimate_user": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.80",
+        "--headless",
+        "--no-sandbox",
+        "--browser=chromium",
+        "--isolated",
+        "--storage-state=/var/lib/arkonex-browser-qa/storage-states/estimate_user.json"
+      ]
+    },
+    "playwright-estimate_manager": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.80",
+        "--headless",
+        "--no-sandbox",
+        "--browser=chromium",
+        "--isolated",
+        "--storage-state=/var/lib/arkonex-browser-qa/storage-states/estimate_manager.json"
+      ]
+    }
+  }
+}

@@ -1,0 +1,33 @@
+# Test fixture ONLY -- proves PERSONA_EXTENSION_TEST: a 3rd persona, fictional
+# ("project_manager_canary_only"), added ONLY to this fixture (never to the real
+# personas.yaml, never provisioned with real credentials, never a real ERPNext account),
+# generates correctly through the exact same unmodified generate-mcp-config.py /
+# lib/*.py used for the real 2 canary personas -- proving no hardcoded "exactly two
+# personas" assumption anywhere in the common scripts.
+personas:
+  estimate_user:
+    enabled: true
+    display_name: "Estimate User (canary)"
+    login_user_id: "e2e-tests@arkonex.ca"
+    expected_role: "Estimate User"
+    credentials_file: "estimate_user.env"
+    storage_state_file: "estimate_user.json"
+    mcp_server_name: "playwright-estimate_user"
+
+  estimate_manager:
+    enabled: true
+    display_name: "Estimate Manager (canary)"
+    login_user_id: "e2e-estimate-manager@arkonex.ca"
+    expected_role: "Estimate Manager"
+    credentials_file: "estimate_manager.env"
+    storage_state_file: "estimate_manager.json"
+    mcp_server_name: "playwright-estimate_manager"
+
+  project_manager_canary_only:
+    enabled: true
+    display_name: "Project Manager (PERSONA_EXTENSION_TEST fixture only, not a real account)"
+    login_user_id: "e2e-project-manager@example.invalid"
+    expected_role: "Project Manager"
+    credentials_file: "project_manager.env"
+    storage_state_file: "project_manager.json"
+    mcp_server_name: "playwright-project_manager"

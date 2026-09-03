@@ -1,0 +1,22 @@
+# browser-qa-refresh@.timer (OPEN-125 / Issue #87)
+#
+# TEMPLATE unit, instantiated per persona as browser-qa-refresh@<persona>.timer.
+# Cadence ratified in the OPEN-125 design freeze (D7) -- keeps sessions fresh without
+# depending on a measured session_expiry value. Reevaluate only as a separate, explicit,
+# controlled change after real measurement, never silently.
+#
+# NOT INSTALLED IN PHASE A (OPEN-125). Source-only in this pass; no `systemctl
+# enable/start` performed.
+
+[Unit]
+Description=Periodic browser QA storageState refresh for persona %i (OPEN-125)
+Documentation=https://github.com/Tweezer1/arkonex-ops-docs/issues/87
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=6h
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target
