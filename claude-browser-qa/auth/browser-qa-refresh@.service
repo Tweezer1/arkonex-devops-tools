@@ -35,6 +35,12 @@ Environment=BROWSER_QA_CREDENTIALS_DIR=/etc/arkonex/browser-qa/credentials
 Environment=BROWSER_QA_STORAGE_STATE_DIR=/var/lib/arkonex-browser-qa/storage-states
 Environment=BROWSER_QA_STORAGE_STATE_GROUP=browserqa-storage
 Environment=BROWSER_QA_SITE_URL=https://deverp.arkonex.ca
+# Shared browser cache -- browserqa-refresh has no home directory (--no-create-home), and
+# the MCP server (running as frappe) must launch the exact SAME installed browser, not a
+# separate per-user download. Proven by runtime canary: plain chromium.launch() (no
+# channel) needs browsers.json's "chromium" revision, installed via
+# `npx playwright install chromium` -- NOT the unrelated "chrome-for-testing" channel.
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/arkonex-browser-qa/browsers
 # NODE_PATH deliberately NOT set: these are ESM modules ("type": "module"), and
 # NODE_PATH only affects CommonJS require() resolution, never ESM import resolution.
 # Standard ESM lookup (starting at the .mjs file's own directory and walking up through
@@ -56,7 +62,7 @@ PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/arkonex-browser-qa/storage-states
-ReadOnlyPaths=/etc/arkonex/browser-qa/credentials
+ReadOnlyPaths=/etc/arkonex/browser-qa/credentials /opt/arkonex-browser-qa/browsers
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true

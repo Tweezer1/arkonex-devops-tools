@@ -30,6 +30,14 @@ from simple_yaml import load_personas  # noqa: E402
 
 MCP_PACKAGE_PINNED_VERSION = "0.0.80"  # OPEN-125 D5/D9 contract: never "@latest"
 
+# Shared browser cache, deliberately NOT $HOME (browserqa-refresh has no home directory
+# -- `useradd --system --no-create-home` -- and the MCP server / the refresher must use
+# the exact SAME installed browser, proven by real launch: plain `chromium.launch()`
+# without a channel needs browsers.json's "chromium" revision, installed via
+# `npx playwright install chromium`, never the "chrome-for-testing" channel which is a
+# DIFFERENT, unrelated download (canary-prep correction 2, runtime discovery).
+DEFAULT_PLAYWRIGHT_BROWSERS_PATH = "/opt/arkonex-browser-qa/browsers"
+
 REQUIRED_FIELDS = (
     "login_user_id",
     "credentials_file",
@@ -86,7 +94,9 @@ def _validate_persona(name: str, entry: dict) -> list[str]:
     return errors
 
 
-def build_mcp_config(personas: dict, storage_state_dir: str) -> dict:
+def build_mcp_config(
+    personas: dict, storage_state_dir: str, browsers_path: str = DEFAULT_PLAYWRIGHT_BROWSERS_PATH
+) -> dict:
     errors: list[str] = []
     enabled_names: list[str] = []
 
@@ -138,6 +148,7 @@ def build_mcp_config(personas: dict, storage_state_dir: str) -> dict:
                 *COMMON_ARGS,
                 f"--storage-state={state_path}",
             ],
+            "env": {"PLAYWRIGHT_BROWSERS_PATH": browsers_path},
         }
 
     return {"mcpServers": servers}
@@ -148,11 +159,16 @@ def main(argv=None) -> int:
     parser.add_argument("--personas", required=True, help="path to personas.yaml")
     parser.add_argument("--storage-state-dir", required=True, help="base directory resolved storage-state paths are anchored to")
     parser.add_argument("--output", required=True, help="path to write the generated .mcp.json candidate")
+    parser.add_argument(
+        "--browsers-path",
+        default=DEFAULT_PLAYWRIGHT_BROWSERS_PATH,
+        help="shared PLAYWRIGHT_BROWSERS_PATH set on every generated server entry",
+    )
     args = parser.parse_args(argv)
 
     try:
         personas = load_personas(args.personas)
-        config = build_mcp_config(personas, args.storage_state_dir)
+        config = build_mcp_config(personas, args.storage_state_dir, args.browsers_path)
     except (ValueError, OSError) as exc:
         print(f"generate-mcp-config: {exc}", file=sys.stderr)
         return 1

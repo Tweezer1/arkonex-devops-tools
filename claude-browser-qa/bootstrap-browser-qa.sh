@@ -12,14 +12,16 @@
 #   provision-identity --apply   thin wrapper around provision-system-identity.sh (user/group/membership, PASS/no-op if conformant, STOP on real divergence)
 #   deploy             --apply   thin wrapper around deploy-controlled-copy.sh --target $DEPLOY_TARGET (ghost-free rsync mirror + npm ci)
 #   generate-config    --apply   run generate-mcp-config.py, then atomically activate the result at --target (defaults to $CLAUDE_BENCH_ROOT/.mcp.json)
-#   browser-install    --apply   NOT IMPLEMENTED YET -- candidate command only, see README "BROWSER INSTALL" section. Exits 3 (explicitly not-yet-contracted) even with --apply.
+#   browser-install    --apply   `npx playwright install chromium` from $DEPLOY_TARGET/auth, into a shared PLAYWRIGHT_BROWSERS_PATH (runtime-proven command; NOT `@playwright/mcp install-browser chrome-for-testing`, a different, unrelated channel)
 #   systemd-install    --apply   copy auth/browser-qa-refresh@.{service,timer} from $DEPLOY_TARGET into /etc/systemd/system/, daemon-reload, enable+start one timer instance per persona.enabled==true
-#   all                --apply   dns + provision-identity + deploy + generate-config + systemd-install, in that order (never browser-install -- that remains a separate, explicit gate per section 12 of the OPEN-125 contract)
+#   all                --apply   dns + provision-identity + deploy + generate-config + systemd-install, in that order (never browser-install -- that remains a separate, explicit gate: a real ~100MB download should never be an implicit side effect of "all")
 #
 # NONE of these sub-commands were invoked with --apply during OPEN-125 Phase A. Phase A
 # only exercises the non-destructive halves of `dns` (idempotency-check function, against
 # a temporary file) and `generate-config` (against a temporary output directory) -- see
-# tests/.
+# tests/. `browser-install` was proven correct by a real, one-time manual runtime canary
+# (documented in README) -- its automated test only checks plan-mode output and argument
+# handling, never re-downloads the ~100MB browser on every test run.
 
 set -euo pipefail
 
@@ -28,6 +30,7 @@ PERSONAS_YAML="${SCRIPT_DIR}/personas.yaml"
 
 DNS_LINE="127.0.0.1 deverp.arkonex.ca"
 DEPLOY_TARGET="${BROWSER_QA_DEPLOY_TARGET:-/opt/arkonex-browser-qa/claude-browser-qa}"
+DEFAULT_PLAYWRIGHT_BROWSERS_PATH="${BROWSER_QA_BROWSERS_PATH:-/opt/arkonex-browser-qa/browsers}"
 
 log() { echo "bootstrap-browser-qa: $*"; }
 
@@ -120,12 +123,14 @@ cmd_generate_config() {
     local apply=0
     local storage_state_dir="/var/lib/arkonex-browser-qa/storage-states"
     local target="${CLAUDE_BENCH_ROOT:-/home/frappe/frappe-bench}/.mcp.json"
+    local browsers_path="$DEFAULT_PLAYWRIGHT_BROWSERS_PATH"
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --apply) apply=1; shift ;;
             --storage-state-dir) storage_state_dir="$2"; shift 2 ;;
             --target) target="$2"; shift 2 ;;
+            --browsers-path) browsers_path="$2"; shift 2 ;;
             *) echo "generate-config: unknown argument $1" >&2; return 2 ;;
         esac
     done
@@ -136,6 +141,7 @@ cmd_generate_config() {
     if ! python3 "${SCRIPT_DIR}/generate-mcp-config.py" \
             --personas "$PERSONAS_YAML" \
             --storage-state-dir "$storage_state_dir" \
+            --browsers-path "$browsers_path" \
             --output "$candidate"; then
         log "generate-config: generation failed, 0 file touched at target"
         rm -f "$candidate"
@@ -164,14 +170,45 @@ cmd_generate_config() {
 }
 
 # ---------------------------------------------------------------------------
-# browser-install -- NOT YET CONTRACTED (OPEN-125 section 12 / "BROWSER INSTALL")
+# browser-install -- RATIFIED (runtime canary, canary-prep correction 2026)
 # ---------------------------------------------------------------------------
+# Proven by real execution: plain `chromium.launch()` (no channel -- used by both the
+# generated MCP server config, --browser=chromium, and auth/playwright-login.mjs) needs
+# the "chromium" entry from playwright-core's own browsers.json, installed via the
+# STANDARD `npx playwright install chromium` -- run from the deployed auth/ directory so
+# it resolves the exact pinned local playwright-core, never a global/ambient one. This
+# is a DIFFERENT target than `@playwright/mcp install-browser chrome-for-testing`
+# (a distinct channel, confirmed unrelated by inspecting playwright-core's own
+# chromiumAliases registry) -- that command is intentionally NOT used here.
 cmd_browser_install() {
-    log "browser-install: BROWSER_INSTALL_EXACT_COMMAND=PENDING_RUNTIME_CANARY -- this" \
-        "sub-command is intentionally unimplemented until the future R2 canary proves" \
-        "the exact command supported by the pinned @playwright/mcp version. Never" \
-        "promoting a once-observed command to contractual truth without that proof."
-    return 3
+    local apply=0
+    local browsers_path="$DEFAULT_PLAYWRIGHT_BROWSERS_PATH"
+    local auth_dir="${DEPLOY_TARGET}/auth"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --apply) apply=1; shift ;;
+            --browsers-path) browsers_path="$2"; shift 2 ;;
+            *) echo "browser-install: unknown argument $1" >&2; return 2 ;;
+        esac
+    done
+
+    if [[ ! -d "$auth_dir/node_modules/playwright" ]]; then
+        echo "browser-install: ${auth_dir}/node_modules/playwright not found -- run 'deploy --apply' first" >&2
+        return 1
+    fi
+
+    if [[ "$apply" -eq 0 ]]; then
+        log "browser-install: PLAN -- would run 'npx playwright install chromium' from" \
+            "${auth_dir} with PLAYWRIGHT_BROWSERS_PATH=${browsers_path}"
+        return 0
+    fi
+
+    mkdir -p "$browsers_path"
+    (
+        cd "$auth_dir"
+        PLAYWRIGHT_BROWSERS_PATH="$browsers_path" npx playwright install chromium
+    )
+    log "browser-install: complete (PLAYWRIGHT_BROWSERS_PATH=${browsers_path})"
 }
 
 # ---------------------------------------------------------------------------

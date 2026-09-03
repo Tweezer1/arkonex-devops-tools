@@ -331,6 +331,36 @@ echo "$deployed_out" | grep -q "playwright-estimate_manager" && rc=1   # must be
 echo "$deployed_out" | grep -q "playwright-estimate_user" || rc=1     # must be PRESENT
 check "T25_post_deploy_operations_isolated_from_checkout" "$rc"
 
+echo "### T26 -- generated config carries the shared PLAYWRIGHT_BROWSERS_PATH on every server entry (runtime canary correction)"
+CAND26="$TMP_ROOT/mcp.browsers-path.json"
+python3 "$CBQ_DIR/generate-mcp-config.py" \
+    --personas "$CBQ_DIR/personas.yaml" \
+    --storage-state-dir "$TMP_ROOT/storage-states" \
+    --output "$CAND26"
+rc=$?
+if [[ $rc -eq 0 ]]; then
+    python3 -c "
+import json
+d = json.load(open('$CAND26'))
+for name, server in d['mcpServers'].items():
+    assert server.get('env', {}).get('PLAYWRIGHT_BROWSERS_PATH'), f'{name} missing PLAYWRIGHT_BROWSERS_PATH'
+print('all server entries carry PLAYWRIGHT_BROWSERS_PATH')
+"
+    rc=$?
+fi
+check "T26_generated_config_has_browsers_path_env" "$rc"
+
+echo "### T27 -- bootstrap-browser-qa.sh browser-install: plan mode never downloads, references the correct (non chrome-for-testing) command"
+out27="$(bash "$CBQ_DIR/bootstrap-browser-qa.sh" browser-install 2>&1)"
+rc=0
+echo "$out27" | grep -q "npx playwright install chromium" || rc=1
+echo "$out27" | grep -qi "chrome-for-testing" && rc=1   # must NOT reference the wrong/unrelated channel
+check "T27_browser_install_plan_mode_correct_command" "$rc"
+
+echo "### T28 -- browser-qa-refresh@.service sets PLAYWRIGHT_BROWSERS_PATH (shared, not \$HOME-dependent)"
+grep -q "^Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/arkonex-browser-qa/browsers$" "$CBQ_DIR/auth/browser-qa-refresh@.service"
+check "T28_service_sets_shared_browsers_path" "$?"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"

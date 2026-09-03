@@ -52,6 +52,12 @@ storageState  /var/lib/arkonex-browser-qa/storage-states/<persona>.json
                 → Claude : jamais lu/affiché/cat/jq/Python-loadé, jamais addCookies manuel
 
 MCP (--isolated --storage-state=...) : AUCUN accès credentials, AUCUN --secrets
+
+navigateur      /opt/arkonex-browser-qa/browsers (PLAYWRIGHT_BROWSERS_PATH partagé)
+                → installé une seule fois (bootstrap-browser-qa.sh browser-install --apply)
+                → lu par browserqa-refresh (refresh) ET frappe (MCP) — jamais deux
+                  installations séparées, jamais un cache $HOME implicite (browserqa-refresh
+                  n'a pas de $HOME)
 ```
 
 ## Déploiement — copie contrôlée obligatoire pour toute opération runtime
@@ -122,17 +128,39 @@ design) — pinner @playwright/mcp suffit à fixer toute la chaîne de dépendan
 Toute montée de version = changement contrôlé et documenté séparément (jamais une
 découverte/installation opportuniste pendant une session Browser QA).
 
-## Installation du navigateur — statut explicite
+## Installation du navigateur — prouvée par canary runtime réel
 
 ```
 BROWSER_INSTALL_DESIGN=RATIFIED
-BROWSER_INSTALL_EXACT_COMMAND=PENDING_RUNTIME_CANARY
+BROWSER_INSTALL_EXACT_COMMAND=PROVEN (canary runtime réel, activation Phase B — 2026)
 ```
-`bootstrap-browser-qa.sh browser-install` existe mais retourne délibérément un statut
-« non contractualisé » (code de sortie 3) tant que le futur canary R2 n'a pas prouvé la
-commande exacte supportée par la version pinnée (séquence de preuve : cache contrôlé →
-install → révision relevée → rebootstrap → 0 nouveau téléchargement → seulement alors
-documentation canonique).
+
+**Découverte du canary** : `npx @playwright/mcp@0.0.80 install-browser chrome-for-testing`
+(utilisé au tout premier canary) télécharge un **canal distinct** («
+`chrome-for-testing`», confirmé dans le registre `chromiumAliases` de `playwright-core` —
+`{ browserName: "chromium", channel: "chrome-for-testing" }`) — **différent** de ce que
+`chromium.launch()` sans canal (utilisé par `auth/playwright-login.mjs` **et** implicitement
+par `--browser=chromium` du serveur MCP) résout réellement, à savoir l'entrée `"chromium"`
+de `playwright-core/browsers.json` (révision distincte). Confirmé par échec réel en
+Phase B : `browserType.launch: Executable doesn't exist at
+.../chromium_headless_shell-1243/...`.
+
+**Commande canonique prouvée** (téléchargement réel exécuté, `LAUNCH_OK` confirmé
+ensuite) :
+```bash
+cd <copie contrôlée>/auth
+PLAYWRIGHT_BROWSERS_PATH=/opt/arkonex-browser-qa/browsers npx playwright install chromium
+```
+`bootstrap-browser-qa.sh browser-install --apply` exécute exactement cette commande.
+**Jamais** `install-browser chrome-for-testing` — canal non utilisé par ce design.
+
+**Chemin partagé obligatoire** : `browserqa-refresh` n'a pas de répertoire `$HOME`
+(`--no-create-home`) — `PLAYWRIGHT_BROWSERS_PATH=/opt/arkonex-browser-qa/browsers` est
+donc fixé explicitement (`Environment=` dans `browser-qa-refresh@.service`, `env` dans
+chaque entrée générée de `.mcp.json`) plutôt que de dépendre d'un cache
+`$HOME/.cache/ms-playwright` implicite — un seul téléchargement sert à la fois le
+refresher (`browserqa-refresh`) et le serveur MCP (`frappe`), jamais deux installations
+séparées et potentiellement divergentes.
 
 ## Cadence du timer (D7, ratifiée)
 

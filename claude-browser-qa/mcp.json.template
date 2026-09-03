@@ -19,7 +19,10 @@
         "--browser=chromium",
         "--isolated",
         "--storage-state=/var/lib/arkonex-browser-qa/storage-states/estimate_user.json"
-      ]
+      ],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "/opt/arkonex-browser-qa/browsers"
+      }
     },
     "playwright-estimate_manager": {
       "command": "npx",
@@ -31,7 +34,10 @@
         "--browser=chromium",
         "--isolated",
         "--storage-state=/var/lib/arkonex-browser-qa/storage-states/estimate_manager.json"
-      ]
+      ],
+      "env": {
+        "PLAYWRIGHT_BROWSERS_PATH": "/opt/arkonex-browser-qa/browsers"
+      }
     }
   }
 }
