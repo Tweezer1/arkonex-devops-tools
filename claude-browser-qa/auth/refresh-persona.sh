@@ -75,14 +75,21 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Source into THIS process's environment only. Never re-exported, never echoed, never
-# passed to a child process via argv (a real login helper reads env vars directly, not
-# command-line arguments -- argv is visible via `ps`, environment of another process is
-# not, by default, to unrelated users).
-set -a
-# shellcheck disable=SC1090
-source "$CREDENTIALS_PATH"
-set +a
+# Read the two keys as LITERAL strings -- deliberately NOT `source`, which interprets
+# the file as bash and would silently mis-parse (or truncate) any password value
+# containing a space, $, backtick, quote, or other shell-special character (real bug,
+# found during Phase B activation canary: a real password broke playwright-login.mjs
+# with an opaque PlaywrightError downstream, traced back to this exact mechanism -- a
+# space in the password caused `source` to interpret the remainder as a second shell
+# command). `cut -d= -f2-` on a grep-matched line never re-interprets the value.
+BROWSER_QA_USER_ID="$(grep -m1 '^BROWSER_QA_USER_ID=' "$CREDENTIALS_PATH" | cut -d= -f2-)"
+BROWSER_QA_PASSWORD="$(grep -m1 '^BROWSER_QA_PASSWORD=' "$CREDENTIALS_PATH" | cut -d= -f2-)"
+export BROWSER_QA_USER_ID BROWSER_QA_PASSWORD
+
+if [[ -z "$BROWSER_QA_USER_ID" || -z "$BROWSER_QA_PASSWORD" ]]; then
+    log "FAIL — credentials file present but BROWSER_QA_USER_ID or BROWSER_QA_PASSWORD could not be parsed"
+    exit 1
+fi
 
 # --- Real login + storageState capture happens in a dedicated Playwright helper,
 #     intentionally NOT bash (bash cannot drive a real browser). See

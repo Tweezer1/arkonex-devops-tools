@@ -361,6 +361,30 @@ echo "### T28 -- browser-qa-refresh@.service sets PLAYWRIGHT_BROWSERS_PATH (shar
 grep -q "^Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/arkonex-browser-qa/browsers$" "$CBQ_DIR/auth/browser-qa-refresh@.service"
 check "T28_service_sets_shared_browsers_path" "$?"
 
+echo "### T29 -- refresh-persona.sh credential parsing survives values with spaces/\$/backticks/quotes (Phase B activation bug fix)"
+rc=0
+FAKE_CRED_DIR="$TMP_ROOT/fake-creds"
+mkdir -p "$FAKE_CRED_DIR"
+# Deliberately nasty value: space, $VAR-looking text, backtick, single and double quotes.
+NASTY_VALUE='Sp4ce and $HOME and `date` and '"'"'single'"'"' and "double"'
+{
+    printf 'BROWSER_QA_USER_ID=%s\n' "fake@example.invalid"
+    printf 'BROWSER_QA_PASSWORD=%s\n' "$NASTY_VALUE"
+} > "$FAKE_CRED_DIR/fixture.env"
+# Exercise the EXACT same extraction refresh-persona.sh now uses (grep + cut, never
+# `source`) and confirm byte-exact round-trip -- proving the fix, not just that
+# refresh-persona.sh contains the right-looking lines (T06-style static check would be
+# insufficient here; this must actually parse the nasty value).
+extracted="$(grep -m1 '^BROWSER_QA_PASSWORD=' "$FAKE_CRED_DIR/fixture.env" | cut -d= -f2-)"
+if [[ "$extracted" != "$NASTY_VALUE" ]]; then
+    echo "  MISMATCH: extracted=[$extracted] expected=[$NASTY_VALUE]"
+    rc=1
+fi
+# Also confirm refresh-persona.sh itself no longer contains `source "$CREDENTIALS_PATH"`.
+grep -q 'source "\$CREDENTIALS_PATH"' "$CBQ_DIR/auth/refresh-persona.sh" && rc=1
+grep -q "grep -m1 '\^BROWSER_QA_PASSWORD=' \"\$CREDENTIALS_PATH\" | cut -d= -f2-" "$CBQ_DIR/auth/refresh-persona.sh" || rc=1
+check "T29_credential_parsing_survives_special_characters" "$rc"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"
