@@ -1,0 +1,11 @@
+# Test fixture ONLY -- used by tests/run-phase-a-tests.sh to prove that an enabled
+# persona missing a required field aborts generation ENTIRELY (0 file written), never
+# produces a partial config. Not a real persona, no real credentials referenced.
+personas:
+  broken_persona:
+    enabled: true
+    display_name: "Intentionally broken (missing storage_state_file)"
+    login_user_id: "broken@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "broken.env"
+    mcp_server_name: "playwright-broken_persona"

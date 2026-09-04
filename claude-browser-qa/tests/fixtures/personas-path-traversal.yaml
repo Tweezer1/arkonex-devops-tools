@@ -1,0 +1,11 @@
+# Test fixture ONLY -- U2 review finding F3. storage_state_file attempting to escape
+# the configured base directory must abort generation entirely.
+personas:
+  persona_traversal:
+    enabled: true
+    display_name: "Path traversal test"
+    login_user_id: "x@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "x.env"
+    storage_state_file: "../../../tmp/evil-storage.json"
+    mcp_server_name: "playwright-persona_traversal"

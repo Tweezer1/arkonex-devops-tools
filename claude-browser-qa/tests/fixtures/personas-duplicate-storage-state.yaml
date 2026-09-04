@@ -1,0 +1,19 @@
+# Test fixture ONLY -- U2 review finding F1. Two enabled personas sharing the same
+# storage_state_file must abort generation entirely, never silently share a session.
+personas:
+  persona_a:
+    enabled: true
+    display_name: "Duplicate storage-state test A"
+    login_user_id: "a@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "a.env"
+    storage_state_file: "shared.json"
+    mcp_server_name: "playwright-persona_a"
+  persona_b:
+    enabled: true
+    display_name: "Duplicate storage-state test B"
+    login_user_id: "b@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "b.env"
+    storage_state_file: "shared.json"
+    mcp_server_name: "playwright-persona_b"

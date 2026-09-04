@@ -1,0 +1,19 @@
+# Test fixture ONLY -- U2 review finding F2. Two enabled personas sharing the same
+# mcp_server_name must abort generation entirely, never silently overwrite one entry.
+personas:
+  persona_a:
+    enabled: true
+    display_name: "Duplicate server-name test A"
+    login_user_id: "a@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "a.env"
+    storage_state_file: "a.json"
+    mcp_server_name: "playwright-shared"
+  persona_b:
+    enabled: true
+    display_name: "Duplicate server-name test B"
+    login_user_id: "b@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "b.env"
+    storage_state_file: "b.json"
+    mcp_server_name: "playwright-shared"

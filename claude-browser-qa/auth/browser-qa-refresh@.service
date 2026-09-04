@@ -1,0 +1,76 @@
+# browser-qa-refresh@.service (OPEN-125 / Issue #87)
+#
+# TEMPLATE unit -- one file, instantiated per persona as
+# browser-qa-refresh@<persona>.service (e.g. browser-qa-refresh@estimate_user.service),
+# %i resolved from the instance name and passed straight to refresh-persona.sh. NEVER
+# edit a copy of this file per persona -- adding a persona means adding an entry to
+# personas.yaml and enabling browser-qa-refresh@<new-persona>.timer, this file itself
+# never changes.
+#
+# NOT INSTALLED IN PHASE A (OPEN-125). Source-only in this pass; no `systemctl
+# enable/start` performed, no /etc/systemd/system/ write performed.
+
+[Unit]
+Description=Browser QA storageState refresh for persona %i (OPEN-125)
+Documentation=https://github.com/Tweezer1/arkonex-ops-docs/issues/87
+# Deliberately no dependency on any Claude Code process/session/socket -- this unit must
+# run and be meaningful with no AI-driven session active at all.
+
+[Service]
+Type=oneshot
+User=browserqa-refresh
+Group=browserqa-refresh
+# Required so this process can chgrp a freshly written storageState to the shared group
+# that gives frappe read access (canary-prep correction, section 1) -- a non-root
+# process can only chgrp a file to a group it is itself a member of.
+SupplementaryGroups=browserqa-storage
+
+# Absolute path resolved at install time by deploy-controlled-copy.sh (this is the
+# source template; the installed copy has ExecStart pointing at the real deployed path
+# under the controlled runtime copy -- see repository README: "le serveur Frappe peut
+# exécuter une copie contrôlée, mais ne doit pas être la source maître").
+ExecStart=/opt/arkonex-browser-qa/claude-browser-qa/auth/refresh-persona.sh %i
+
+Environment=BROWSER_QA_CREDENTIALS_DIR=/etc/arkonex/browser-qa/credentials
+Environment=BROWSER_QA_STORAGE_STATE_DIR=/var/lib/arkonex-browser-qa/storage-states
+Environment=BROWSER_QA_STORAGE_STATE_GROUP=browserqa-storage
+Environment=BROWSER_QA_SITE_URL=https://deverp.arkonex.ca
+# Shared browser cache -- browserqa-refresh has no home directory (--no-create-home), and
+# the MCP server (running as frappe) must launch the exact SAME installed browser, not a
+# separate per-user download. Proven by runtime canary: plain chromium.launch() (no
+# channel) needs browsers.json's "chromium" revision, installed via
+# `npx playwright install chromium` -- NOT the unrelated "chrome-for-testing" channel.
+Environment=PLAYWRIGHT_BROWSERS_PATH=/opt/arkonex-browser-qa/browsers
+# NODE_PATH deliberately NOT set: these are ESM modules ("type": "module"), and
+# NODE_PATH only affects CommonJS require() resolution, never ESM import resolution.
+# Standard ESM lookup (starting at the .mjs file's own directory and walking up through
+# node_modules/) already finds the `npm ci`-installed playwright package correctly.
+
+TimeoutStartSec=120
+# fail-closed by construction: a non-zero exit from refresh-persona.sh (login failure,
+# validation failure, missing credentials) simply leaves this unit in "failed" state.
+# systemd does not retry within the same trigger; the next timer firing tries again.
+# Nothing in this unit ever deletes an existing storageState on failure -- that
+# discipline lives in refresh-persona.sh itself (temp candidate, atomic rename on PASS
+# only).
+
+# --- Sandboxing: this service is the ONLY component allowed to read credentials, so it
+# is deliberately NOT sandboxed away from /etc/arkonex/browser-qa/credentials or
+# /var/lib/arkonex-browser-qa/storage-states, but everything else is locked down. ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/arkonex-browser-qa/storage-states
+ReadOnlyPaths=/etc/arkonex/browser-qa/credentials /opt/arkonex-browser-qa/browsers
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+# Logs go to the journal (journalctl -u browser-qa-refresh@<persona>) -- refresh-persona.sh
+# and the two Node helpers are designed to emit only status-shaped lines
+# (AUTH_<persona>=PASS/EXPIRED/FAIL, no cookie/secret value ever passed to log/echo/print).
+StandardOutput=journal
+StandardError=journal

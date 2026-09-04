@@ -1,0 +1,12 @@
+# Test fixture ONLY -- U2 review finding F4. "enabled: yes" (a string, not the boolean
+# true) must NOT be treated as active -- generation must report "no persona with
+# enabled: true" rather than silently activating this entry.
+personas:
+  persona_yes_string:
+    enabled: yes
+    display_name: "Non-strict enabled test"
+    login_user_id: "x@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "x.env"
+    storage_state_file: "x.json"
+    mcp_server_name: "playwright-persona_yes_string"
