@@ -13,12 +13,28 @@ la main.
 
 ## Statut
 
-**PHASE A uniquement** (2026) — cette source versionnée existe, ses tests non destructifs
-passent. **Rien n'est activé sur l'instance DEV** : aucune écriture `/etc/hosts`, aucun
-utilisateur système créé, aucun répertoire `/etc/arkonex/`ou `/var/lib/arkonex-browser-qa/`
-créé, aucune unité systemd installée, aucun navigateur installé, aucune credential créée,
-aucun login E2E réel effectué, `.mcp.json` actif du bench **non touché**. Un GO humain
-distinct est requis pour toute activation runtime (voir Issue #87).
+**PHASE A + PHASE B activées et prouvées en runtime réel** (2026) —
+[Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87) `CLOSED/PASSED`.
+`/etc/hosts` porte la ligne DNS gérée ; l'utilisateur/groupe système
+(`browserqa-refresh`/`browserqa-storage`) est provisionné ; `/etc/arkonex/browser-qa/credentials/`
+et `/var/lib/arkonex-browser-qa/storage-states/` existent réellement ; les unités systemd
+`browser-qa-refresh@<persona>.{service,timer}` sont installées et actives ; le navigateur
+pinné est installé sous `PLAYWRIGHT_BROWSERS_PATH` partagé ; les 2 personas canaries
+(`estimate_user`, `estimate_manager`) ont un login E2E réel et un `.mcp.json` actif généré
+depuis cette source. Le rollback de l'infra auth (`systemd-rollback`) est lui aussi prouvé
+en conditions réelles (rollback → restore → re-canary Browser QA PASS).
+
+**Réserve documentée** (acceptée explicitement, voir clôture #87) : le rollback DNS
+(`dns_rollback`) et le rollback config (`.mcp.json`, restauration depuis un backup réel)
+sont prouvés par mécanisme réel + tests réels (`tests/T36` pour DNS sur une copie de
+`/etc/hosts`, backups horodatés réels pour la config), mais **pas** par un cycle live sur
+le fichier de production — jugé disproportionné (risque de casser la résolution DNS ou les
+MCP actifs pour une valeur de preuve marginale). À reconsidérer si un incident réel touche
+un jour cette infrastructure.
+
+Toute évolution future (N-ème persona, montée de version MCP/navigateur, changement de
+cadence timer) reste un changement contrôlé séparé, jamais une improvisation pendant une
+session Browser QA — voir « Ce que ce répertoire ne fait jamais » ci-dessous.
 
 ## Architecture
 
