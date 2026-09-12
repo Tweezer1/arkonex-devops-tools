@@ -103,6 +103,7 @@ COMMON_SCRIPTS=(
     "$CBQ_DIR/lib/list_enabled_personas.py"
     "$CBQ_DIR/prepare-persona.sh"
     "$CBQ_DIR/provision-sudoers.sh"
+    "$CBQ_DIR/tests/canary-timer-recurrence.sh"
 )
 for f in "${COMMON_SCRIPTS[@]}"; do
     if grep -Eq 'estimate_user|estimate_manager' "$f"; then
@@ -511,6 +512,15 @@ grep -q 'systemctl enable --now "browser-qa-refresh@\${persona}.timer"' "$CBQ_DI
 out39="$(bash "$CBQ_DIR/bootstrap-browser-qa.sh" systemd-install 2>&1)"
 echo "$out39" | grep -qi 'restart' || rc=1
 check "T39_systemd_install_forces_restart_on_redeploy" "$rc"
+
+echo "### T40 -- canary-timer-recurrence.sh: static safety checks (root-required, not executed here -- see manual run instructions in the script header)"
+rc=0
+CANARY_SCRIPT="$CBQ_DIR/tests/canary-timer-recurrence.sh"
+bash -n "$CANARY_SCRIPT" || rc=1
+grep -q 'must run as root' "$CANARY_SCRIPT" || rc=1
+grep -q 'trap cleanup EXIT' "$CANARY_SCRIPT" || rc=1   # cadence always restored, even on error/Ctrl-C
+grep -q 'rm -f "\$DROPIN_FILE"' "$CANARY_SCRIPT" || rc=1
+check "T40_canary_recurrence_script_static_safety" "$rc"
 
 echo
 echo "=================================================="
