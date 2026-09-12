@@ -69,6 +69,11 @@ OnCalendar=
 OnBootSec=
 Persistent=
 OnCalendar=*-*-* *:*:00
+# Real bug hit live on the first run of this exact script (2026-09-12): without this
+# reset, RandomizedDelaySec=5min is inherited unchanged from the base unit and applies
+# independently to EACH computed per-minute occurrence -- observed result: only 1 fire
+# in 240s for one persona and 0 for the other, instead of one roughly every minute.
+RandomizedDelaySec=0
 EOF
 systemctl daemon-reload
 

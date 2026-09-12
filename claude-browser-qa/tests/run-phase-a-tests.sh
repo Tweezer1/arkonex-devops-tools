@@ -522,6 +522,11 @@ grep -q 'trap cleanup EXIT' "$CANARY_SCRIPT" || rc=1   # cadence always restored
 grep -q 'rm -f "\$DROPIN_FILE"' "$CANARY_SCRIPT" || rc=1
 check "T40_canary_recurrence_script_static_safety" "$rc"
 
+echo "### T41 -- canary-timer-recurrence.sh: RandomizedDelaySec reset to 0 in the drop-in (regression, live 2026-09-12: inherited 5min randomization made the canary observe only 1/0 fires in 240s instead of one per minute)"
+rc=0
+grep -q '^RandomizedDelaySec=0$' "$CANARY_SCRIPT" || rc=1
+check "T41_canary_recurrence_randomized_delay_reset" "$rc"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"
