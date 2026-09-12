@@ -1,0 +1,13 @@
+# Test fixture ONLY -- used by tests/run-phase-a-tests.sh to prove that
+# provision-sudoers.sh refuses to render a sudoers rule for a persona name outside the
+# safe charset [A-Za-z0-9_-] (independent review finding: an unvalidated name could
+# contain a sudoers glob character and still pass `visudo -c`). Not a real persona.
+personas:
+  "bad*persona":
+    enabled: true
+    display_name: "Intentionally unsafe persona name (contains a sudoers glob char)"
+    login_user_id: "unsafe@example.invalid"
+    expected_role: "N/A"
+    credentials_file: "unsafe.env"
+    storage_state_file: "unsafe.json"
+    mcp_server_name: "playwright-unsafe"

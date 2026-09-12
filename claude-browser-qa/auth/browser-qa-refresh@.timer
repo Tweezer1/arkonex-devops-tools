@@ -5,8 +5,32 @@
 # depending on a measured session_expiry value. Reevaluate only as a separate, explicit,
 # controlled change after real measurement, never silently.
 #
-# NOT INSTALLED IN PHASE A (OPEN-125). Source-only in this pass; no `systemctl
-# enable/start` performed.
+# ROOT CAUSE (confirmed 2026-09-12, regression discovered same day, see Issue #87):
+# the original cadence used ONLY monotonic specs (OnBootSec + OnUnitActiveSec, no
+# OnCalendar). OnUnitActiveSec is computed from the TRIGGERED SERVICE UNIT's own
+# in-memory ActiveEnterTimestamp -- a value that lives purely in the systemd manager's
+# runtime state, is NEVER persisted to disk, and is silently wiped whenever that
+# service unit's runtime object is recreated (observed: a `systemctl daemon-reload`
+# following a redeploy of these unit files, done shortly after the very first timer
+# fire on 2026-09-04, before the first 6h re-arm could happen). Once wiped, with
+# OnBootSec already consumed for the current boot, OnUnitActiveSec has no anchor left
+# to schedule from -- the timer stays "active (elapsed)" forever with no NEXT run,
+# until either a reboot (re-arms OnBootSec) or a manual `systemctl start` of the
+# .service. `Persistent=true` does NOT help here: it only affects catch-up for
+# OnCalendar=, never for monotonic specs (see systemd.timer(5)). Confirmed via
+# `systemctl show browser-qa-refresh@<persona>.service -p ActiveEnterTimestamp` (blank)
+# vs. the TIMER's own `LastTriggerUSec` (populated, and older than the unit files'
+# on-disk mtime) -- i.e. the service's own activation memory was lost after it had
+# already fired once.
+#
+# FIX: OnCalendar= is evaluated fresh from wall-clock time on every check -- it has no
+# dependency on the triggered unit's volatile activation memory, so it survives any
+# future daemon-reload/redeploy. Persistent=true now does real work: if the host is
+# down (or the timer briefly inactive) across a scheduled boundary, the missed run is
+# caught up via systemd's on-disk calendar timer stamp
+# (/var/lib/systemd/timers/stamp-<unit>.timer), which OnCalendar= timers -- unlike pure
+# monotonic ones -- actually maintain. OnBootSec=5min is kept for a fast first refresh
+# right after an actual reboot; it is harmless alongside OnCalendar=.
 
 [Unit]
 Description=Periodic browser QA storageState refresh for persona %i (OPEN-125)
@@ -14,7 +38,7 @@ Documentation=https://github.com/Tweezer1/arkonex-ops-docs/issues/87
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=6h
+OnCalendar=*-*-* 00/6:00:00
 Persistent=true
 RandomizedDelaySec=5min
 
