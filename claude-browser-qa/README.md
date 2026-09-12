@@ -13,16 +13,17 @@ la main.
 
 ## Statut
 
-**PHASE A + PHASE B activées et prouvées en runtime réel** (2026) —
-[Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87) `CLOSED/PASSED`.
-`/etc/hosts` porte la ligne DNS gérée ; l'utilisateur/groupe système
-(`browserqa-refresh`/`browserqa-storage`) est provisionné ; `/etc/arkonex/browser-qa/credentials/`
-et `/var/lib/arkonex-browser-qa/storage-states/` existent réellement ; les unités systemd
-`browser-qa-refresh@<persona>.{service,timer}` sont installées et actives ; le navigateur
-pinné est installé sous `PLAYWRIGHT_BROWSERS_PATH` partagé ; les 2 personas canaries
-(`estimate_user`, `estimate_manager`) ont un login E2E réel et un `.mcp.json` actif généré
-depuis cette source. Le rollback de l'infra auth (`systemd-rollback`) est lui aussi prouvé
-en conditions réelles (rollback → restore → re-canary Browser QA PASS).
+**Activation historique prouvée le 4 septembre 2026 ; régression signalée le
+12 septembre.** L'état courant et les critères de réparation vivent dans
+[Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87).
+
+La source, la copie contrôlée, le navigateur partagé et les deux personas ont été
+activés et testés lors des phases A/B. Le rollback/restore a été suivi d'un canary
+authentifié. Ces preuves ne démontrent pas la récurrence des renouvellements :
+le relevé du 12 septembre montre des timers active (elapsed), sans prochaine
+exécution, et des sessions non renouvelées depuis le 4 septembre.
+La cause racine doit être établie sur l'hôte ; aucune réparation runtime n'est
+revendiquée par cette correction documentaire.
 
 **Réserve documentée** (acceptée explicitement, voir clôture #87) : le rollback DNS
 (`dns_rollback`) et le rollback config (`.mcp.json`, restauration depuis un backup réel)
@@ -178,7 +179,7 @@ chaque entrée générée de `.mcp.json`) plutôt que de dépendre d'un cache
 refresher (`browserqa-refresh`) et le serveur MCP (`frappe`), jamais deux installations
 séparées et potentiellement divergentes.
 
-## Cadence du timer (D7, ratifiée)
+## Cadence historique du timer (D7) — correction sous #87
 
 ```
 OnBootSec=5min
@@ -186,9 +187,42 @@ OnUnitActiveSec=6h
 Persistent=true
 RandomizedDelaySec=5min
 ```
-Objectif : maintenir les sessions fraîches sans dépendre d'une mesure réelle de
-`session_expiry`. Réévaluation = changement contrôlé séparé après mesure réelle, jamais
-un ajustement silencieux.
+Cette configuration est historique, pas une preuve de disponibilité actuelle.
+Selon [systemd](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.timer.xml),
+`Persistent=true` n'a d'effet qu'avec `OnCalendar` ; il n'offre donc aucun rattrapage
+persistant ici. La combinaison OnBootSec/OnUnitActiveSec est supportée et ne suffit
+pas à expliquer l'arrêt constaté. Vérifier unités chargées, drop-ins, journaux,
+version et restauration avant de conclure.
+
+Le correctif #87 doit fournir une cadence compatible avec les sessions ERPNext,
+une prochaine exécution vérifiable après installation/restauration, et une preuve
+de deux déclenchements planifiés successifs. Une programmation OnCalendar avec
+Persistent=true est une option recommandée à valider, pas une configuration déjà déployée.
+
+## Préparation et récupération à la demande — à implémenter sous #87
+
+Le parcours cible vérifie la persona avant les tests, demande au service dédié un
+renouvellement seulement si nécessaire, attend un résultat borné, puis recrée le
+contexte MCP et confirme réellement l'identité dans le navigateur.
+Un storageState renouvelé n'actualise pas automatiquement un contexte déjà ouvert.
+Voir [Playwright MCP](https://github.com/microsoft/playwright-mcp#user-profile).
+
+`verify-browser-qa.sh` demeure read-only. Un point d'entrée contrôlé distinct doit
+permettre cette demande sans exposer les credentials ni le contenu du storageState
+à Claude. Son chemin et sa commande ne sont pas encore documentés comme disponibles :
+ils seront ajoutés après implémentation et preuve runtime. L'autorisation doit être
+limitée aux personas activées et au service prévu, sans sudo général ni chemins
+modifiables permettant une élévation de privilèges.
+
+Les demandes concurrentes doivent être coordonnées. Préserver la session valide
+précédente si le renouvellement échoue ; distinguer expiration, erreur de connexion,
+identité incorrecte et droits insuffisants. Ne pas renouveler systématiquement des
+sessions valides, ni rejouer automatiquement une opération métier interrompue.
+
+La clôture demande une récupération après expiration sans intervention humaine,
+des déclenchements planifiés successifs, une restauration des minuteries, un nouveau
+contexte MCP authentifié et des échecs bornés sans secrets. Le détail et les preuves
+sont suivis dans #87. Aucun correctif métier de #40 n'appartient à cette infrastructure.
 
 ## Ce que ce répertoire ne fait jamais
 
@@ -196,7 +230,8 @@ un ajustement silencieux.
 - Ne permet à aucun agent IA d'exécuter un login réel (`auth/playwright-login.mjs` est
   invoqué exclusivement par `refresh-persona.sh`, lui-même exclusivement par systemd ou
   un opérateur humain à un vrai terminal — jamais par Claude, jamais dans une session
-  Claude Code).
+  Claude Code). Une demande via le point d'entrée contrôlé décrit ci-dessus sera
+  permise après sa livraison prouvée ; le login restera exécuté par le service dédié.
 - Ne fait jamais dépendre `.mcp.json` actif d'un symlink vers ce checkout.
 - Ne référence jamais un nom de persona en dur dans un script commun.
 - Ne corrige jamais silencieusement un état invalide détecté par `verify-browser-qa.sh`.
