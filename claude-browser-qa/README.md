@@ -13,17 +13,42 @@ la main.
 
 ## Statut
 
-**Activation historique prouvée le 4 septembre 2026 ; régression signalée le
-12 septembre.** L'état courant et les critères de réparation vivent dans
-[Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87).
+**Activation historique prouvée le 4 septembre 2026 ; régression constatée et corrigée
+le 12 septembre 2026 (`OPEN-125`, [Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87)).**
+L'état courant et vivant du lot reste l'Issue #87 ; ce README documente le mécanisme
+effectivement livré.
 
-La source, la copie contrôlée, le navigateur partagé et les deux personas ont été
-activés et testés lors des phases A/B. Le rollback/restore a été suivi d'un canary
-authentifié. Ces preuves ne démontrent pas la récurrence des renouvellements :
-le relevé du 12 septembre montre des timers active (elapsed), sans prochaine
-exécution, et des sessions non renouvelées depuis le 4 septembre.
-La cause racine doit être établie sur l'hôte ; aucune réparation runtime n'est
-revendiquée par cette correction documentaire.
+**Cause racine `[PROUVÉ-CODE]`** : la cadence D7 d'origine (`OnBootSec` + `OnUnitActiveSec`,
+aucun `OnCalendar`) calcule sa prochaine échéance à partir du timestamp d'activation **en
+mémoire** de l'unité `.service` déclenchée (`ActiveEnterTimestamp`) — une valeur qui ne
+persiste jamais sur disque. Ce timestamp est effacé chaque fois que l'objet runtime de
+cette unité est recréé (concrètement : un `daemon-reload` consécutif à un redéploiement
+des fichiers unités) — reproduit exactement le 4 septembre : un premier déclenchement a eu
+lieu à 17:36 UTC, un redéploiement + `daemon-reload` a suivi peu après (20:21 UTC), et plus
+aucune échéance n'a jamais été recalculée ensuite. `Persistent=true` n'a jamais aidé ici :
+il ne rattrape que `OnCalendar=`, jamais les spécifications monotones — confirmation d'une
+correction déjà actée dans l'Issue avant diagnostic complet.
+
+**Correctif livré et prouvé en runtime le 12 septembre** :
+- `OnCalendar=*-*-* 00/6:00:00` remplace `OnUnitActiveSec` (recalculé depuis l'horloge
+  murale à chaque vérification, insensible à tout `daemon-reload` futur) ; `Persistent=true`
+  effectue désormais un vrai rattrapage ; `OnBootSec=5min` conservé.
+- `systemd-install` effectue désormais `enable` **+ `restart` inconditionnel** (pas
+  seulement `enable --now`, qui ne recalcule rien sur une unité déjà active — second bug
+  réel découvert pendant le tout premier canary de ce correctif : après installation du
+  timer corrigé, `enable --now` a laissé `NextElapseUSecRealtime` vide jusqu'à un `restart`
+  explicite).
+- `prepare-persona.sh` (nouveau) : point d'entrée contrôlé pour une session Claude Code,
+  voir « Préparation et récupération à la demande » ci-dessous.
+- `provision-sudoers.sh` + `bootstrap-browser-qa.sh sudoers-install` (nouveau, exclu de
+  `all`) : règle sudo minimale generée depuis `personas.yaml`, validée `visudo -c` avant
+  toute installation.
+- Preuves runtime réelles : récupération après expiration sans intervention humaine ni
+  lecture de secret par Claude (les deux personas ont revalidé leur identité après un
+  simple `restart` du timer) ; deux déclenchements **réellement planifiés** successifs
+  observés pour les deux personas (`tests/canary-timer-recurrence.sh`, cadence accélérée
+  temporairement puis config finale 6h rétablie et sa prochaine échéance revérifiée) ;
+  41/41 tests (`tests/run-phase-a-tests.sh`).
 
 **Réserve documentée** (acceptée explicitement, voir clôture #87) : le rollback DNS
 (`dns_rollback`) et le rollback config (`.mcp.json`, restauration depuis un backup réel)
@@ -113,6 +138,38 @@ Le manifeste déclare `expected_role` à titre **documentaire uniquement** — B
 *vérifie* les droits, il ne les *définit* jamais. Aucune création/modification de rôle ou
 permission ERPNext ne provient de ce répertoire.
 
+### Ajouter un nouveau persona (rôles/droits différents, pour un autre lot)
+
+Division du travail **fixe**, quel que soit le rôle ERPNext visé — un futur lot ne doit
+jamais rester bloqué faute d'information technique sur ce point (voir aussi `CLAUDE.md`
+racine, section Browser QA) :
+
+| Étape | Qui | Commande / action |
+|---|---|---|
+| 1. Ajouter l'entrée dans `personas.yaml` | Claude | édition directe (0 secret, versionné) |
+| 2. Créer le compte Frappe/ERPNext + assigner ses rôles | Claude, **sous le contrat/gate du lot qui en a besoin**, pas sous OPEN-125 | ORM Frappe (`bench console` ou équivalent autorisé par ce lot) |
+| 3. Régénérer `.mcp.json` | Claude | `bash bootstrap-browser-qa.sh generate-config --apply` |
+| 4. **Provisionner le mot de passe** | **Humain, terminal réel, jamais Claude Code** | `sudo -u browserqa-refresh bash credentials-configure.sh <persona>` |
+| 5. Installer l'instance timer + la règle sudo | **Humain** (root, aucun secret) | `sudo bash bootstrap-browser-qa.sh systemd-install --apply` puis `sudoers-install --apply` |
+| 6. Premier login réel + confirmation d'identité | Claude | `bash prepare-persona.sh <persona>` |
+
+**Étape 4 : pourquoi c'est un mur technique, pas une convention.** `credentials-configure.sh`
+refuse de s'exécuter si l'entrée n'est pas un vrai TTY interactif (pas de pipe, pas
+d'automatisation), et le répertoire cible
+(`/etc/arkonex/browser-qa/credentials/`, mode `0700`, propriétaire `browserqa-refresh`)
+est illisible/inscriptible pour `frappe` — c'est le système de fichiers qui l'impose,
+Claude ne pourrait pas contourner ça même en essayant. Le mot de passe n'est jamais
+visible, transmis ou proposé par Claude, à aucune étape.
+
+**Étape 5 : pourquoi c'est un humain, alors qu'il n'y a pas de secret.** Simple manque de
+privilège root interactif côté Claude (documenté sous OPEN-125) — `systemd-install` et
+`sudoers-install` ne lisent ni n'écrivent jamais de credential ; Claude peut préparer les
+deux commandes exactes à copier-coller, mais ne peut pas les exécuter lui-même.
+
+Aucune modification de script n'est jamais nécessaire pour ces 6 étapes — preuve
+structurelle : `tests/T10` (« PERSONA_EXTENSION_TEST ») génère une config `.mcp.json`
+valide pour un 3e persona fictif sans toucher un seul fichier commun.
+
 ## Composants
 
 | Fichier | Rôle | Exécuté en Phase A ? |
@@ -126,14 +183,17 @@ permission ERPNext ne provient de ce répertoire.
 | `provision-system-identity.sh` | provisioning idempotent utilisateur/groupe (`browserqa-refresh`/`browserqa-storage`) — PASS/no-op si conforme, **STOP si divergence réelle** | testé (contre de vrais comptes système existants, chemins PASS et STOP prouvés) |
 | `deploy-controlled-copy.sh` | mirroir déterministe (`rsync -a --delete`) + `npm ci` vers la copie contrôlée | testé (anti-fantôme, idempotence, version pinnée réellement installée) |
 | `credentials-configure.sh` | **seul** outil de provisioning des credentials — prompt TTY masqué, jamais d'argv/log/écho du mot de passe, vérifie sans relire le secret | testé (mode test, valeur fictive uniquement) |
-| `bootstrap-browser-qa.sh` | orchestrateur idempotent (`dns`/`provision-identity`/`deploy`/`generate-config`/`browser-install`/`systemd-install`/`all`), **plan par défaut, `--apply` explicite requis** | fonctions non destructives testées uniquement |
+| `bootstrap-browser-qa.sh` | orchestrateur idempotent (`dns`/`provision-identity`/`deploy`/`generate-config`/`browser-install`/`systemd-install`/`sudoers-install`/`all`), **plan par défaut, `--apply` explicite requis** ; `systemd-install` exige un `restart` inconditionnel, pas seulement `enable --now` | installé et prouvé en runtime (2026-09-12) |
 | `verify-browser-qa.sh` | vérificateur read-only, ne corrige jamais | non exécuté contre l'instance réelle en Phase A |
+| `prepare-persona.sh` | point d'entrée contrôlé pour une session Claude Code — vérifie, demande un renouvellement borné seulement si nécessaire, revérifie | installé et prouvé en runtime (2026-09-12) |
+| `provision-sudoers.sh` | génère + valide (`visudo -c`) la règle sudo minimale par persona activée, STOP si divergence | installé et prouvé en runtime (2026-09-12) |
+| `tests/canary-timer-recurrence.sh` | outil manuel root, temporaire, jamais dans `all` — preuve de récurrence par cadence accélérée puis restauration automatique | exécuté avec succès (2026-09-12) |
 | `auth/package.json` / `auth/package-lock.json` | dépendance Node reproductible (`npm ci`), `playwright` pinné exactement à la version déjà contractée avec `@playwright/mcp` | lockfile généré et vérifié |
 | `auth/refresh-persona.sh` | orchestrateur générique de refresh (un seul fichier, `%i` = persona), fixe mode 0640 + groupe partagé sur le storageState **avant** le rename atomique | non exécuté (requiert credentials réels) |
 | `auth/playwright-login.mjs` | login Frappe réel + capture storageState | non exécuté |
 | `auth/validate-storage-state.mjs` | preuve de session authentifiée sans jamais afficher le cookie | non exécuté (requiert un storageState réel) |
-| `auth/browser-qa-refresh@.service` | unité systemd template (oneshot), `SupplementaryGroups=browserqa-storage` | non installée |
-| `auth/browser-qa-refresh@.timer` | unité systemd template (cadence D7) | non installée |
+| `auth/browser-qa-refresh@.service` | unité systemd template (oneshot), `SupplementaryGroups=browserqa-storage`, `StartLimitIntervalSec=600`/`StartLimitBurst=3` | installée et prouvée en runtime (2026-09-12) |
+| `auth/browser-qa-refresh@.timer` | unité systemd template (cadence D7, `OnCalendar=` depuis le 2026-09-12) | installée et prouvée en runtime (2026-09-12) |
 
 ## Version MCP
 
@@ -179,50 +239,83 @@ chaque entrée générée de `.mcp.json`) plutôt que de dépendre d'un cache
 refresher (`browserqa-refresh`) et le serveur MCP (`frappe`), jamais deux installations
 séparées et potentiellement divergentes.
 
-## Cadence historique du timer (D7) — correction sous #87
+## Cadence du timer (D7, corrigée le 2026-09-12 — #87)
 
 ```
 OnBootSec=5min
-OnUnitActiveSec=6h
+OnCalendar=*-*-* 00/6:00:00
 Persistent=true
 RandomizedDelaySec=5min
 ```
-Cette configuration est historique, pas une preuve de disponibilité actuelle.
-Selon [systemd](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.timer.xml),
-`Persistent=true` n'a d'effet qu'avec `OnCalendar` ; il n'offre donc aucun rattrapage
-persistant ici. La combinaison OnBootSec/OnUnitActiveSec est supportée et ne suffit
-pas à expliquer l'arrêt constaté. Vérifier unités chargées, drop-ins, journaux,
-version et restauration avant de conclure.
+`OnUnitActiveSec=6h` (cadence originale) a été **remplacé** par `OnCalendar=`, pas
+seulement complété. Raison `[PROUVÉ-CODE]` : `OnUnitActiveSec` se calcule depuis
+`ActiveEnterTimestamp` de l'unité `.service` déclenchée, une valeur en mémoire jamais
+persistée, effacée par tout `daemon-reload` qui recrée l'objet runtime de cette unité —
+exactement ce qui s'est produit le 4 septembre (redéploiement peu après le premier
+déclenchement, plus aucune échéance recalculée ensuite). `OnCalendar=` est réévalué à
+chaque vérification depuis l'horloge murale : aucune dépendance à une mémoire volatile,
+donc insensible à un futur `daemon-reload`. `Persistent=true` effectue maintenant un vrai
+rattrapage (fichier de stamp sur disque, propre à `OnCalendar=` — voir
+[systemd.timer](https://raw.githubusercontent.com/systemd/systemd/main/man/systemd.timer.xml)).
+`OnBootSec=5min` reste pour une reprise rapide après un vrai redémarrage — inoffensif à
+côté d'`OnCalendar=`.
 
-Le correctif #87 doit fournir une cadence compatible avec les sessions ERPNext,
-une prochaine exécution vérifiable après installation/restauration, et une preuve
-de deux déclenchements planifiés successifs. Une programmation OnCalendar avec
-Persistent=true est une option recommandée à valider, pas une configuration déjà déployée.
+**Second bug réel, découvert pendant le tout premier canary de ce correctif** :
+`systemctl enable --now` sur un timer **déjà actif** ne recalcule rien (`--now` dégénère
+en `start` sur une unité déjà démarrée). `systemd-install` fait donc désormais
+`enable` (idempotent) **+ `restart` inconditionnel** — correct aussi bien à la première
+installation qu'à chaque redéploiement futur.
 
-## Préparation et récupération à la demande — à implémenter sous #87
+Preuve de récurrence (`tests/canary-timer-recurrence.sh`, exécution manuelle root,
+2026-09-12) : cadence temporairement accélérée à 1/minute via un drop-in systemd
+sur l'unité template, deux déclenchements **pilotés par le timer** observés
+successivement pour les deux personas (`estimate_user`, `estimate_manager`), cadence
+finale 6h rétablie automatiquement et sa prochaine échéance revérifiée non vide.
 
-Le parcours cible vérifie la persona avant les tests, demande au service dédié un
-renouvellement seulement si nécessaire, attend un résultat borné, puis recrée le
-contexte MCP et confirme réellement l'identité dans le navigateur.
-Un storageState renouvelé n'actualise pas automatiquement un contexte déjà ouvert.
-Voir [Playwright MCP](https://github.com/microsoft/playwright-mcp#user-profile).
+## Préparation et récupération à la demande — livré et prouvé le 2026-09-12 (#87)
 
-`verify-browser-qa.sh` demeure read-only. Un point d'entrée contrôlé distinct doit
-permettre cette demande sans exposer les credentials ni le contenu du storageState
-à Claude. Son chemin et sa commande ne sont pas encore documentés comme disponibles :
-ils seront ajoutés après implémentation et preuve runtime. L'autorisation doit être
-limitée aux personas activées et au service prévu, sans sudo général ni chemins
-modifiables permettant une élévation de privilèges.
+`prepare-persona.sh <persona>` est l'unique point d'entrée qu'une session Claude Code
+peut appeler avant un test Browser QA :
 
-Les demandes concurrentes doivent être coordonnées. Préserver la session valide
-précédente si le renouvellement échoue ; distinguer expiration, erreur de connexion,
-identité incorrecte et droits insuffisants. Ne pas renouveler systématiquement des
-sessions valides, ni rejouer automatiquement une opération métier interrompue.
+```bash
+bash prepare-persona.sh estimate_user
+```
 
-La clôture demande une récupération après expiration sans intervention humaine,
-des déclenchements planifiés successifs, une restauration des minuteries, un nouveau
-contexte MCP authentifié et des échecs bornés sans secrets. Le détail et les preuves
-sont suivis dans #87. Aucun correctif métier de #40 n'appartient à cette infrastructure.
+1. Vérifie l'identité du storageState de la persona (lecture seule,
+   `auth/validate-storage-state.mjs`) ;
+2. Si et seulement si elle n'est pas déjà valide, demande **exactement une** tentative
+   de renouvellement bornée : `sudo -n systemctl start browser-qa-refresh@<persona>.service`
+   (bloquant jusqu'à complétion ou `TimeoutStartSec=120` de l'unité — aucune attente
+   réimplémentée ici) ;
+3. Revérifie l'identité et rapporte `PREPARE_<persona>=PASS|EXPIRED|FAIL|SERVICE_UNAVAILABLE`
+   sur stdout, sans jamais afficher de secret.
+
+Une session déjà valide n'est **jamais** renouvelée (`PASS (ALREADY_VALID)`). Le
+storageState renouvelé n'actualise pas automatiquement un contexte MCP déjà ouvert — après
+un `PASS`, la session appelante doit recréer/rouvrir le serveur MCP `playwright-<persona>`
+concerné puis confirmer réellement l'identité dans le navigateur (voir
+[Playwright MCP](https://github.com/microsoft/playwright-mcp#user-profile)). Sur
+`EXPIRED`/`FAIL` : `STOP`, ne jamais retenter automatiquement, ne jamais rejouer une
+opération métier interrompue par l'expiration — cette décision reste à la session
+appelante, après vérification indépendante.
+
+**Autorisation** : `provision-sudoers.sh` (+ `bootstrap-browser-qa.sh sudoers-install`,
+exclu de `all` comme `browser-install`) génère depuis `personas.yaml` exactement une règle
+`NOPASSWD` par persona activée — `frappe ALL=(root) NOPASSWD: /usr/bin/systemctl start
+browser-qa-refresh@<persona>.service`, rien de plus (pas de shell, pas de wildcard, pas
+d'autre verbe `systemctl`). Toujours validée par `visudo -c` avant toute installation ;
+jamais écrasée silencieusement si le fichier installé diverge de ce que `personas.yaml`
+génère maintenant.
+
+**Concurrence et échecs** : deux demandes simultanées pour la même persona sont fusionnées
+par systemd lui-même (le `start` d'une unité déjà en cours de démarrage rejoint le job en
+cours, jamais un second login) ; `StartLimitIntervalSec=600`/`StartLimitBurst=3` sur
+l'unité `.service` limite tout abus au-delà. `refresh-persona.sh` ne supprime jamais un
+storageState valide en cas d'échec du renouvellement (candidat temporaire, rename atomique
+uniquement sur succès) — un `EXPIRED`/`FAIL` de `prepare-persona.sh` laisse donc l'état
+précédent intact, jamais pire qu'avant l'appel.
+
+`verify-browser-qa.sh` reste strictement read-only et distinct de ce mécanisme.
 
 ## Ce que ce répertoire ne fait jamais
 
@@ -230,8 +323,12 @@ sont suivis dans #87. Aucun correctif métier de #40 n'appartient à cette infra
 - Ne permet à aucun agent IA d'exécuter un login réel (`auth/playwright-login.mjs` est
   invoqué exclusivement par `refresh-persona.sh`, lui-même exclusivement par systemd ou
   un opérateur humain à un vrai terminal — jamais par Claude, jamais dans une session
-  Claude Code). Une demande via le point d'entrée contrôlé décrit ci-dessus sera
-  permise après sa livraison prouvée ; le login restera exécuté par le service dédié.
+  Claude Code). Claude peut *demander* un renouvellement via `prepare-persona.sh` (règle
+  sudo scopée à une seule commande, livrée et prouvée le 2026-09-12) ; le login lui-même
+  reste exécuté exclusivement par le service dédié `browserqa-refresh`.
+- Ne permet jamais à `credentials-configure.sh` de s'exécuter hors d'un vrai TTY
+  interactif — aucun mot de passe n'est jamais provisionné par Claude, y compris pour un
+  nouveau persona (voir « Ajouter un nouveau persona » ci-dessus).
 - Ne fait jamais dépendre `.mcp.json` actif d'un symlink vers ce checkout.
 - Ne référence jamais un nom de persona en dur dans un script commun.
 - Ne corrige jamais silencieusement un état invalide détecté par `verify-browser-qa.sh`.
