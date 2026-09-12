@@ -43,12 +43,40 @@ correction déjà actée dans l'Issue avant diagnostic complet.
 - `provision-sudoers.sh` + `bootstrap-browser-qa.sh sudoers-install` (nouveau, exclu de
   `all`) : règle sudo minimale generée depuis `personas.yaml`, validée `visudo -c` avant
   toute installation.
-- Preuves runtime réelles : récupération après expiration sans intervention humaine ni
-  lecture de secret par Claude (les deux personas ont revalidé leur identité après un
-  simple `restart` du timer) ; deux déclenchements **réellement planifiés** successifs
-  observés pour les deux personas (`tests/canary-timer-recurrence.sh`, cadence accélérée
-  temporairement puis config finale 6h rétablie et sa prochaine échéance revérifiée) ;
-  41/41 tests (`tests/run-phase-a-tests.sh`).
+- Deux bugs supplémentaires trouvés et corrigés par une revue avant merge, tous deux
+  vérifiés par reproduction (pas seulement par lecture) : `prepare-persona.sh` pouvait
+  rapporter un échec (`SERVICE_UNAVAILABLE`) avec un code de sortie 0 (`if ! CMD; then
+  rc=$?` capture le statut de la condition négatée, jamais celui de `CMD`) et testait
+  l'autorisation sudo via `sudo -n true` (ne vérifie rien sur la commande scopée réelle,
+  sans rapport avec elle) au lieu de `sudo -n -l <commande exacte>` ; `provision-sudoers.sh`
+  refusait **toute** divergence, y compris l'ajout légitime d'un persona — corrigé par un
+  parcours de mise à jour contrôlée (voir « `personas.yaml` — extensibilité N-personas »).
+- **Preuves runtime réelles, distinguées précisément** (ne jamais mélanger un mécanisme
+  prouvé et une hypothèse) :
+  - `[PROUVÉ]` le mécanisme de renouvellement revalide réellement l'identité attendue —
+    observé une première fois via un `systemctl restart` du timer **exécuté par un
+    humain** (aucun secret dans cette commande, mais une intervention humaine réelle,
+    pas une récupération autonome), puis une seconde fois via
+    `sudo -n systemctl start browser-qa-refresh@estimate_user.service` exécuté
+    **directement par Claude, sans stub**, via la règle sudo scopée réellement installée —
+    preuve que cette autorisation fonctionne vraiment pour `frappe`, sans mot de passe.
+  - `[PROUVÉ]` `prepare-persona.sh` exécuté réellement (pas de stub) pour les deux
+    personas : chemin « déjà valide, aucun renouvellement demandé » confirmé
+    (`PASS (ALREADY_VALID)`).
+  - `[PROUVÉ]` deux déclenchements **réellement planifiés** successifs du timer lui-même,
+    sans intervention humaine ni Claude au moment du déclenchement
+    (`tests/canary-timer-recurrence.sh`, cadence accélérée temporairement puis config
+    finale 6h rétablie et sa prochaine échéance revérifiée).
+  - `[À VALIDER]` le cycle complet de `prepare-persona.sh` — détection d'un état
+    **réellement invalide**, appel sudo, renouvellement, reconfirmation — exécuté de bout
+    en bout par le script lui-même (pas par un `restart` humain, pas par un appel sudo
+    direct de Claude) n'a pas encore été déclenché par une expiration réelle.
+  - `[À VALIDER]` nouvelle session Claude Code avec navigateur réellement authentifié via
+    un MCP `playwright-<persona>` — **pas encore fait**. Ne pas confondre avec la
+    vérification `validate-storage-state.mjs`, qui prouve l'identité côté serveur mais
+    jamais un navigateur MCP réellement ouvert dans une session Claude neuve.
+  - 44/44 tests (`tests/run-phase-a-tests.sh`), dont 4 couvrant précisément les deux bugs
+    de revue ci-dessus (T42-T44).
 
 **Réserve documentée** (acceptée explicitement, voir clôture #87) : le rollback DNS
 (`dns_rollback`) et le rollback config (`.mcp.json`, restauration depuis un backup réel)
@@ -272,7 +300,14 @@ sur l'unité template, deux déclenchements **pilotés par le timer** observés
 successivement pour les deux personas (`estimate_user`, `estimate_manager`), cadence
 finale 6h rétablie automatiquement et sa prochaine échéance revérifiée non vide.
 
-## Préparation et récupération à la demande — livré et prouvé le 2026-09-12 (#87)
+## Préparation et récupération à la demande — livré le 2026-09-12, mécanisme prouvé (#87)
+
+Le mécanisme (règle sudo scopée, script, comportements de concurrence/échec) est livré et
+chacune de ses parties a été vérifiée par exécution réelle. Ce qui reste `[À VALIDER]` :
+le cycle complet (état invalide réel → sudo → renouvellement → reconfirmation) déclenché
+de bout en bout par `prepare-persona.sh` lui-même face à une expiration réelle, plutôt que
+par un `restart` humain ou un appel sudo direct — voir « Statut » ci-dessus et
+[Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87) pour l'état courant.
 
 `prepare-persona.sh <persona>` est l'unique point d'entrée qu'une session Claude Code
 peut appeler avant un test Browser QA :
