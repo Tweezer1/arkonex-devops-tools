@@ -80,19 +80,32 @@ fi
 
 log "not currently valid (observed='${observed:-<empty>}') -- requesting exactly one renewal"
 
-if ! "$SUDO_BIN" -n "$SYSTEMCTL_BIN" start "browser-qa-refresh@${PERSONA}.service"; then
-    start_rc=$?
-    # Distinguish "the controlled entry point itself is not usable" (sudo refused the
-    # command outright, e.g. missing/incomplete sudoers rule) from "the refresh ran but
-    # failed" (systemctl start returns non-zero for a oneshot unit that exited non-zero
-    # or hit TimeoutStartSec) -- both are reported without any secret, but only the
-    # first is a pure infrastructure problem rather than an auth outcome.
-    if ! "$SUDO_BIN" -n true 2>/dev/null; then
-        log "STOP -- sudo refused this request non-interactively; the controlled entry" \
-            "point is not correctly provisioned (see provision-sudoers.sh) -- this is an" \
-            "infrastructure gap, not an ordinary session expiration"
+# Deliberately NOT `if ! "$SUDO_BIN" ...; then start_rc=$?; ...`: inside that `then`
+# branch, `$?` reflects the exit status of the negated condition itself (always 0,
+# since that is why the branch was entered), never the real exit code of the failed
+# command -- a real bug found by review before merge, confirmed by reproduction. Run
+# the command as its own statement first, capture `$?` immediately after, THEN branch.
+"$SUDO_BIN" -n "$SYSTEMCTL_BIN" start "browser-qa-refresh@${PERSONA}.service"
+start_rc=$?
+if [[ "$start_rc" -ne 0 ]]; then
+    # Distinguish "the controlled entry point itself is not usable" (sudo refuses this
+    # EXACT command non-interactively, e.g. missing/incomplete sudoers rule) from "the
+    # refresh ran but failed" (systemctl start returns non-zero for a oneshot unit that
+    # exited non-zero or hit TimeoutStartSec) -- both reported without any secret, but
+    # only the first is a pure infrastructure problem rather than an auth outcome.
+    # `sudo -n true` was tried first and rejected on review: it only proves whether
+    # *some* NOPASSWD rule lets this user run `true`, never whether the specific scoped
+    # command below is authorized -- frappe's general `sudo` group membership (password
+    # required) makes that check meaningless here either way. `sudo -n -l <exact
+    # command>` asks sudo directly "is this precise invocation permitted", without
+    # running it, which is the only check that actually answers the question.
+    if ! "$SUDO_BIN" -n -l "$SYSTEMCTL_BIN" start "browser-qa-refresh@${PERSONA}.service" >/dev/null 2>&1; then
+        log "STOP -- sudo does not authorize this exact command non-interactively; the" \
+            "controlled entry point is not correctly provisioned (see" \
+            "provision-sudoers.sh) -- this is an infrastructure gap, not an ordinary" \
+            "session expiration"
         echo "PREPARE_${PERSONA}=SERVICE_UNAVAILABLE"
-        exit "$start_rc"
+        exit 1
     fi
     log "renewal request returned a failure (exit ${start_rc}) -- re-checking identity" \
         "anyway, since refresh-persona.sh never deletes a previously valid storageState" \
