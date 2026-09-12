@@ -67,14 +67,23 @@ correction déjà actée dans l'Issue avant diagnostic complet.
     sans intervention humaine ni Claude au moment du déclenchement
     (`tests/canary-timer-recurrence.sh`, cadence accélérée temporairement puis config
     finale 6h rétablie et sa prochaine échéance revérifiée).
-  - `[À VALIDER]` le cycle complet de `prepare-persona.sh` — détection d'un état
-    **réellement invalide**, appel sudo, renouvellement, reconfirmation — exécuté de bout
-    en bout par le script lui-même (pas par un `restart` humain, pas par un appel sudo
-    direct de Claude) n'a pas encore été déclenché par une expiration réelle.
-  - `[À VALIDER]` nouvelle session Claude Code avec navigateur réellement authentifié via
-    un MCP `playwright-<persona>` — **pas encore fait**. Ne pas confondre avec la
-    vérification `validate-storage-state.mjs`, qui prouve l'identité côté serveur mais
-    jamais un navigateur MCP réellement ouvert dans une session Claude neuve.
+  - `[PROUVÉ]` le cycle complet de `prepare-persona.sh` — détection, appel sudo,
+    renouvellement, reconfirmation — exécuté de bout en bout par le script lui-même,
+    **sans intervention humaine pendant la récupération** (2026-09-12 17:33:43-53 UTC,
+    10s) : storageState `estimate_user` déplacé au préalable par un humain
+    (`sudo -u browserqa-refresh mv ...`, seule action humaine, hors récupération —
+    équivalent fonctionnel d'une expiration pour `validate-storage-state.mjs`, mais pas
+    une expiration survenue naturellement dans le temps) ; le script a détecté
+    `observed='Guest'`, déclenché le renouvellement réel, et reconfirmé
+    `PASS (RENEWED)`.
+  - `[PROUVÉ]` navigateur MCP réel après récupération, même session : premier usage de
+    `playwright-estimate_user` (contexte neuf) → `/desk` réel, snapshot confirmant le
+    menu utilisateur "E2E Tests" ; `playwright-estimate_manager` → snapshot confirmant
+    "E2E Estimate Manager", menu Desk plus large cohérent avec son rôle — deux identités
+    distinctes correctement rendues.
+  - `[À VALIDER]` nouvelle session Claude Code **distincte** (processus séparé) avec
+    navigateur authentifié sous les deux personas — pas encore fait dans cette session-ci
+    par construction (une session ne peut pas prouver qu'une AUTRE session fonctionne).
   - 44/44 tests (`tests/run-phase-a-tests.sh`), dont 4 couvrant précisément les deux bugs
     de revue ci-dessus (T42-T44).
 
@@ -300,13 +309,13 @@ sur l'unité template, deux déclenchements **pilotés par le timer** observés
 successivement pour les deux personas (`estimate_user`, `estimate_manager`), cadence
 finale 6h rétablie automatiquement et sa prochaine échéance revérifiée non vide.
 
-## Préparation et récupération à la demande — livré le 2026-09-12, mécanisme prouvé (#87)
+## Préparation et récupération à la demande — livré et prouvé le 2026-09-12 (#87)
 
 Le mécanisme (règle sudo scopée, script, comportements de concurrence/échec) est livré et
-chacune de ses parties a été vérifiée par exécution réelle. Ce qui reste `[À VALIDER]` :
-le cycle complet (état invalide réel → sudo → renouvellement → reconfirmation) déclenché
-de bout en bout par `prepare-persona.sh` lui-même face à une expiration réelle, plutôt que
-par un `restart` humain ou un appel sudo direct — voir « Statut » ci-dessus et
+son cycle complet — détection d'un état invalide, appel sudo, renouvellement,
+reconfirmation, navigateur MCP réel après coup — a été vérifié de bout en bout par
+exécution réelle (voir « Statut » ci-dessus). Ce qui reste `[À VALIDER]` : une nouvelle
+session Claude Code distincte sous les deux personas — voir
 [Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87) pour l'état courant.
 
 `prepare-persona.sh <persona>` est l'unique point d'entrée qu'une session Claude Code
