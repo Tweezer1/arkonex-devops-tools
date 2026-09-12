@@ -504,6 +504,14 @@ set -e
 echo "$out38" | grep -q '^PREPARE_not-a-real-persona=UNKNOWN_PERSONA$' || rc=1
 check "T38_prepare_persona_unknown_persona_rejected" "$rc"
 
+echo "### T39 -- systemd-install: unconditional restart (not just enable --now) on every install/redeploy (regression, live 2026-09-12: enable --now on an already-active timer never recomputed OnCalendar)"
+rc=0
+grep -q 'systemctl restart "browser-qa-refresh@\${persona}.timer"' "$CBQ_DIR/bootstrap-browser-qa.sh" || rc=1
+grep -q 'systemctl enable --now "browser-qa-refresh@\${persona}.timer"' "$CBQ_DIR/bootstrap-browser-qa.sh" && rc=1
+out39="$(bash "$CBQ_DIR/bootstrap-browser-qa.sh" systemd-install 2>&1)"
+echo "$out39" | grep -qi 'restart' || rc=1
+check "T39_systemd_install_forces_restart_on_redeploy" "$rc"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"

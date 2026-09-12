@@ -239,7 +239,7 @@ cmd_systemd_install() {
     if [[ "$apply" -eq 0 ]]; then
         log "systemd-install: PLAN -- would install browser-qa-refresh@.{service,timer}" \
             "from ${DEPLOY_TARGET}/auth/ to /etc/systemd/system/, daemon-reload, then" \
-            "enable+start for each of:"
+            "enable + unconditional restart for each of:"
         echo "$personas"
         return 0
     fi
@@ -255,8 +255,18 @@ cmd_systemd_install() {
 
     while IFS= read -r persona; do
         [[ -z "$persona" ]] && continue
-        systemctl enable --now "browser-qa-refresh@${persona}.timer"
-        log "systemd-install: enabled browser-qa-refresh@${persona}.timer"
+        # `enable --now` alone is NOT sufficient on a redeploy: if the timer instance
+        # was already active from a previous install, `--now` degrades to a no-op
+        # start on an already-started unit and systemd never recomputes its schedule
+        # from the (possibly changed) [Timer] section -- reproduced live during this
+        # very correctif (2026-09-12): after this exact daemon-reload, the timer stayed
+        # active with NextElapseUSecRealtime empty until an explicit restart. `enable`
+        # (idempotent, harmless if already enabled) + an unconditional `restart`
+        # (start if inactive, stop+start if active) is the only combination that is
+        # correct both on a first install and on every subsequent redeploy.
+        systemctl enable "browser-qa-refresh@${persona}.timer"
+        systemctl restart "browser-qa-refresh@${persona}.timer"
+        log "systemd-install: enabled + restarted browser-qa-refresh@${persona}.timer"
     done <<< "$personas"
 
     # Post-check proof (OPEN-125 correctif 2026-09-12): the exact failure mode that
