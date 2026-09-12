@@ -14,7 +14,8 @@
 #   generate-config    --apply   run generate-mcp-config.py, then atomically activate the result at --target (defaults to $CLAUDE_BENCH_ROOT/.mcp.json)
 #   browser-install    --apply   `npx playwright install chromium` from $DEPLOY_TARGET/auth, into a shared PLAYWRIGHT_BROWSERS_PATH (runtime-proven command; NOT `@playwright/mcp install-browser chrome-for-testing`, a different, unrelated channel)
 #   systemd-install    --apply   copy auth/browser-qa-refresh@.{service,timer} from $DEPLOY_TARGET into /etc/systemd/system/, daemon-reload, enable+start one timer instance per persona.enabled==true
-#   all                --apply   dns + provision-identity + deploy + generate-config + systemd-install, in that order (never browser-install -- that remains a separate, explicit gate: a real ~100MB download should never be an implicit side effect of "all")
+#   sudoers-install    --apply   thin wrapper around provision-sudoers.sh (scoped NOPASSWD rule letting frappe trigger an on-demand renewal via prepare-persona.sh, one rule per persona.enabled==true, PASS/no-op if identical, STOP on divergence)
+#   all                --apply   dns + provision-identity + deploy + generate-config + systemd-install, in that order (never browser-install, never sudoers-install -- both remain separate, explicit gates: a real ~100MB download and a sudo privilege grant should never be an implicit side effect of "all")
 #
 # NONE of these sub-commands were invoked with --apply during OPEN-125 Phase A. Phase A
 # only exercises the non-destructive halves of `dns` (idempotency-check function, against
@@ -257,6 +258,23 @@ cmd_systemd_install() {
         systemctl enable --now "browser-qa-refresh@${persona}.timer"
         log "systemd-install: enabled browser-qa-refresh@${persona}.timer"
     done <<< "$personas"
+
+    # Post-check proof (OPEN-125 correctif 2026-09-12): the exact failure mode that
+    # caused the original regression is a timer sitting "active (elapsed)" with no
+    # next run at all -- print it immediately so that never goes unnoticed again.
+    log "systemd-install: next scheduled run per persona (must NOT be blank):"
+    while IFS= read -r persona; do
+        [[ -z "$persona" ]] && continue
+        systemctl list-timers "browser-qa-refresh@${persona}.timer" --no-pager
+    done <<< "$personas"
+}
+
+# ---------------------------------------------------------------------------
+# sudoers-install
+# ---------------------------------------------------------------------------
+cmd_sudoers_install() {
+    local args=("$@")
+    bash "${SCRIPT_DIR}/provision-sudoers.sh" "${args[@]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -271,16 +289,17 @@ main() {
         generate-config) cmd_generate_config "$@" ;;
         browser-install) cmd_browser_install "$@" ;;
         systemd-install) cmd_systemd_install "$@" ;;
+        sudoers-install) cmd_sudoers_install "$@" ;;
         all)
             cmd_dns "$@"
             cmd_provision_identity "$@"
             cmd_deploy "$@"
             cmd_generate_config "$@"
             cmd_systemd_install "$@"
-            log "all: browser-install intentionally NOT included -- separate explicit gate"
+            log "all: browser-install, sudoers-install intentionally NOT included -- separate explicit gates"
             ;;
         *)
-            echo "usage: bootstrap-browser-qa.sh {dns|provision-identity|deploy|generate-config|browser-install|systemd-install|all} [--apply] [options]" >&2
+            echo "usage: bootstrap-browser-qa.sh {dns|provision-identity|deploy|generate-config|browser-install|systemd-install|sudoers-install|all} [--apply] [options]" >&2
             return 2
             ;;
     esac

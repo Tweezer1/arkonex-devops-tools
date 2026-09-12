@@ -6,15 +6,21 @@
 # edit a copy of this file per persona -- adding a persona means adding an entry to
 # personas.yaml and enabling browser-qa-refresh@<new-persona>.timer, this file itself
 # never changes.
-#
-# NOT INSTALLED IN PHASE A (OPEN-125). Source-only in this pass; no `systemctl
-# enable/start` performed, no /etc/systemd/system/ write performed.
 
 [Unit]
 Description=Browser QA storageState refresh for persona %i (OPEN-125)
 Documentation=https://github.com/Tweezer1/arkonex-ops-docs/issues/87
 # Deliberately no dependency on any Claude Code process/session/socket -- this unit must
 # run and be meaningful with no AI-driven session active at all.
+# On-demand throttle (Issue #87 correctif, "eviter les renouvellements inutiles" /
+# concurrent-request handling): caps how often this instance can even be STARTED
+# (whether by the timer or by the on-demand entry point, prepare-persona.sh, via the
+# scoped sudoers rule) -- a burst beyond this is refused by systemd itself (fails fast,
+# no login attempted), independent of whatever is asking. Two concurrent `systemctl
+# start` calls for the SAME already-running instance are not a burst -- systemd merges
+# them into the single in-flight job, never a second real login attempt.
+StartLimitIntervalSec=600
+StartLimitBurst=3
 
 [Service]
 Type=oneshot
