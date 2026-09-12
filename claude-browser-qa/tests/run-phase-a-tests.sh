@@ -476,7 +476,7 @@ out37a="$(env "${SUDOERS_TEST_ENV[@]}" PROVISION_SUDOERS_TEST_FILE="$SUDOERS_TES
 [[ "$(stat -c '%a' "$SUDOERS_TEST_FILE" 2>/dev/null)" == "440" ]] || rc=1
 out37b="$(env "${SUDOERS_TEST_ENV[@]}" PROVISION_SUDOERS_TEST_FILE="$SUDOERS_TEST_FILE" \
     bash "$CBQ_DIR/provision-sudoers.sh" --apply 2>&1)"
-echo "$out37b" | grep -q 'PASS (already present, matches current personas.yaml)' || rc=1
+echo "$out37b" | grep -q 'PASS (already present, matches current personas.yaml, ownership/mode conform)' || rc=1
 
 # Simulate "a file already sits at this path but provision-sudoers.sh did not put it
 # there" WITHOUT relying on writing over an already-0440 file (which frappe correctly
@@ -613,6 +613,79 @@ set -e
 echo "$out44b" | grep -q 'STOP -- ' || rc=1
 grep -q 'rm -rf' "$SUDOERS_FOREIGN_FILE" || rc=1   # never overwritten
 check "T44_provision_sudoers_controlled_update_path" "$rc"
+
+echo "### T45 -- provision-sudoers.sh: no predictable /tmp/\$\$ path for visudo output (U2 independent review finding, MAJEUR -- CWE-59/377 symlink pre-plant risk against the root --apply path)"
+rc=0
+# The rejected pattern itself (an actual redirection target, not this test's own
+# explanatory comment quoting it by name for context) must never come back.
+grep -qF '>/tmp/provision-sudoers.visudo.$$' "$CBQ_DIR/provision-sudoers.sh" && rc=1
+grep -q 'VISUDO_OUTPUT="\$(mktemp)"' "$CBQ_DIR/provision-sudoers.sh" || rc=1
+grep -q "trap 'rm -f \"\\\$CANDIDATE\" \"\\\$VISUDO_OUTPUT\"' EXIT" "$CBQ_DIR/provision-sudoers.sh" || rc=1
+# Functional preservation: the success path (T36) already re-confirms visudo -c still
+# runs and passes after this fix; re-asserted here explicitly for this finding's sake.
+# Captured into a variable first, THEN matched with a here-string (never `cmd | grep -q`
+# directly on a live producer process) -- `grep -q` exits as soon as it finds a match,
+# and piping a real producer process into it risks a SIGPIPE race that can flakily
+# surface as a non-zero pipeline status under `pipefail`, independent of whether the
+# match was actually found. A here-string has no separate writer process to race.
+t45out="$(env PROVISION_SUDOERS_TEST_OWNER="$(id -un)" PROVISION_SUDOERS_TEST_GROUP="$(id -gn)" \
+    PROVISION_SUDOERS_TEST_FILE="$TMP_ROOT/t45-sudoers-file" \
+    bash "$CBQ_DIR/provision-sudoers.sh" 2>&1)"
+grep -q "passes 'visudo -c'" <<< "$t45out" || rc=1
+check "T45_provision_sudoers_no_predictable_tmp_path" "$rc"
+
+echo "### T46 -- provision-sudoers.sh: content-match fast path also reverifies ownership/mode, never silently trusts diff alone (U2 independent review finding, MINEUR/MODERE)"
+rc=0
+T46_ENV=(PROVISION_SUDOERS_TEST_OWNER="$(id -un)" PROVISION_SUDOERS_TEST_GROUP="$(id -gn)")
+T46_FILE="$TMP_ROOT/t46-sudoers-file"
+env "${T46_ENV[@]}" PROVISION_SUDOERS_TEST_FILE="$T46_FILE" bash "$CBQ_DIR/provision-sudoers.sh" --apply >/dev/null 2>&1
+chmod 0644 "$T46_FILE"   # content still matches; ownership/mode now diverges
+set +e
+out46="$(env "${T46_ENV[@]}" PROVISION_SUDOERS_TEST_FILE="$T46_FILE" bash "$CBQ_DIR/provision-sudoers.sh" 2>&1)"
+rc46=$?
+set -e
+[[ "$rc46" -ne 0 ]] || rc=1
+echo "$out46" | grep -q 'STOP -- ' || rc=1
+echo "$out46" | grep -q 'ownership/mode' || rc=1
+[[ "$(stat -c '%a' "$T46_FILE")" == "644" ]] || rc=1   # never silently re-chmod
+check "T46_provision_sudoers_rechecks_ownership_mode" "$rc"
+
+echo "### T47 -- provision-sudoers.sh: persona name outside [A-Za-z0-9_-] is refused before any rule is rendered (U2 independent review finding, MINEUR -- a sudoers glob char would still pass visudo -c)"
+rc=0
+set +e
+out47="$(env PROVISION_SUDOERS_TEST_PERSONAS_YAML="$CBQ_DIR/tests/fixtures/personas-unsafe-name.yaml" \
+    PROVISION_SUDOERS_TEST_OWNER="$(id -un)" PROVISION_SUDOERS_TEST_GROUP="$(id -gn)" \
+    PROVISION_SUDOERS_TEST_FILE="$TMP_ROOT/t47-sudoers-file" \
+    bash "$CBQ_DIR/provision-sudoers.sh" --apply 2>&1)"
+rc47=$?
+set -e
+[[ "$rc47" -ne 0 ]] || rc=1
+echo "$out47" | grep -q 'STOP -- ' || rc=1
+echo "$out47" | grep -q 'safe charset' || rc=1
+[[ -f "$TMP_ROOT/t47-sudoers-file" ]] && rc=1   # nothing written
+check "T47_provision_sudoers_persona_charset_validated" "$rc"
+
+echo "### T48 -- provision-sudoers.sh: a failing personas.yaml read aborts the script (set -e), never silently renders zero rules (U2 independent review finding, MINEUR -- process substitution previously hid the failure)"
+rc=0
+grep -Eq 'done < <\(python3.*list_enabled_personas' "$CBQ_DIR/provision-sudoers.sh" && rc=1   # the hiding pattern must not come back
+grep -q 'personas="\$(python3 "\${SCRIPT_DIR}/lib/list_enabled_personas.py"' "$CBQ_DIR/provision-sudoers.sh" || rc=1
+set +e
+out48="$(env PROVISION_SUDOERS_TEST_PERSONAS_YAML="/nonexistent/personas.yaml" \
+    PROVISION_SUDOERS_TEST_OWNER="$(id -un)" PROVISION_SUDOERS_TEST_GROUP="$(id -gn)" \
+    PROVISION_SUDOERS_TEST_FILE="$TMP_ROOT/t48-sudoers-file" \
+    bash "$CBQ_DIR/provision-sudoers.sh" --apply 2>&1)"
+rc48=$?
+set -e
+[[ "$rc48" -ne 0 ]] || rc=1
+[[ -f "$TMP_ROOT/t48-sudoers-file" ]] && rc=1   # nothing written -- not "0 rules installed"
+check "T48_provision_sudoers_personas_read_failure_aborts" "$rc"
+
+echo "### T49 -- bootstrap-browser-qa.sh systemd-install: NextElapseUSecRealtime is an enforced gate (return 1), not just a printed comment (U2 independent review finding, MINEUR -- a future silent recurrence of the OPEN-125 regression would otherwise only print a warning-shaped line)"
+rc=0
+grep -q 'NextElapseUSecRealtime --value' "$CBQ_DIR/bootstrap-browser-qa.sh" || rc=1
+grep -q 'install_failed=1' "$CBQ_DIR/bootstrap-browser-qa.sh" || rc=1
+grep -A2 'if \[\[ "\$install_failed" -eq 1 \]\]; then' "$CBQ_DIR/bootstrap-browser-qa.sh" | grep -q 'return 1' || rc=1
+check "T49_systemd_install_next_elapse_is_a_hard_gate" "$rc"
 
 echo
 echo "=================================================="

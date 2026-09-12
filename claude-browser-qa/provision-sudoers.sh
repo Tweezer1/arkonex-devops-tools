@@ -39,7 +39,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PERSONAS_YAML="${SCRIPT_DIR}/personas.yaml"
+PERSONAS_YAML="${PROVISION_SUDOERS_TEST_PERSONAS_YAML:-${SCRIPT_DIR}/personas.yaml}"
 
 # Overridable only for non-destructive testing against a throwaway file owned by the
 # test runner itself (see tests/) -- the real deployment always uses the root:root
@@ -79,12 +79,28 @@ RULE_SUFFIX=".service"
 
 render_candidate() {
     local out="$1"
+    # Plain command substitution, NOT `done < <(python3 ...)` -- a process substitution's
+    # failure is invisible to both `set -e` and this loop (it just sees EOF), found by
+    # independent review: personas.yaml transiently unreadable during --apply would
+    # silently render zero rules instead of aborting. `x="$(cmd)"` DOES trip `set -e` on
+    # a non-zero exit, matching the same call's own convention in bootstrap-browser-qa.sh.
+    local personas
+    personas="$(python3 "${SCRIPT_DIR}/lib/list_enabled_personas.py" --personas "$PERSONAS_YAML")"
     {
         printf '%s\n' "${HEADER_LINES[@]}"
         while IFS= read -r persona; do
             [[ -z "$persona" ]] && continue
+            # Fail closed on anything outside the safe charset -- found by independent
+            # review: an unvalidated persona name could contain a sudoers glob character
+            # (e.g. "*"), which still passes `visudo -c` (globs are valid syntax) and
+            # would silently install a rule broader than the single exact command this
+            # design is supposed to guarantee ("jamais wildcard").
+            if [[ ! "$persona" =~ ^[A-Za-z0-9_-]+$ ]]; then
+                stop "persona name '${persona}' from personas.yaml is not in the safe" \
+                    "charset [A-Za-z0-9_-] -- refusing to render a sudoers rule from it"
+            fi
             printf '%s%s%s\n' "$RULE_PREFIX" "$persona" "$RULE_SUFFIX"
-        done < <(python3 "${SCRIPT_DIR}/lib/list_enabled_personas.py" --personas "$PERSONAS_YAML")
+        done <<< "$personas"
     } > "$out"
 }
 
@@ -122,20 +138,43 @@ is_recognized_content() {
 }
 
 CANDIDATE="$(mktemp)"
-trap 'rm -f "$CANDIDATE"' EXIT
+# MAJOR finding from independent review, fixed: the previous visudo-output capture used
+# a predictable `/tmp/provision-sudoers.visudo.$$` path with a plain `>` redirection --
+# CWE-59/CWE-377, a classic local symlink pre-plant attack against the root-run --apply
+# path (a local user pre-creates a symlink at that path pointing at any root-writable
+# file; the redirection follows it, letting root's own write clobber that file). `mktemp`
+# (used for CANDIDATE two lines above, and everywhere else write targets are created in
+# this repo) creates its file atomically with O_EXCL under a unique, unpredictable name,
+# closing that gap entirely -- this is a fix, not just a workaround, since it removes the
+# predictable-path precondition the attack needs.
+VISUDO_OUTPUT="$(mktemp)"
+trap 'rm -f "$CANDIDATE" "$VISUDO_OUTPUT"' EXIT
 render_candidate "$CANDIDATE"
 
-if ! visudo -c -f "$CANDIDATE" >/tmp/provision-sudoers.visudo.$$ 2>&1; then
-    cat /tmp/provision-sudoers.visudo.$$ >&2
-    rm -f /tmp/provision-sudoers.visudo.$$
+if ! visudo -c -f "$CANDIDATE" >"$VISUDO_OUTPUT" 2>&1; then
+    cat "$VISUDO_OUTPUT" >&2
     stop "generated sudoers content failed 'visudo -c' -- refusing to install anything"
 fi
-rm -f /tmp/provision-sudoers.visudo.$$
 log "generated candidate passes 'visudo -c' syntax validation"
 
 if [[ -f "$SUDOERS_FILE" ]]; then
     if diff -q "$CANDIDATE" "$SUDOERS_FILE" >/dev/null 2>&1; then
-        log "'${SUDOERS_FILE}': PASS (already present, matches current personas.yaml)"
+        # Content matching is not the whole contract -- found by independent review:
+        # this fast path never re-checked ownership/mode, so a file that drifted to a
+        # non-root owner or a wrong mode (sudo silently ignores such a fragment --
+        # `#includedir` skips anything not owned/permissioned exactly right) would still
+        # report PASS, masking the grant being silently inactive. Same "never silently
+        # fix, STOP on real divergence" discipline as everywhere else in this repo --
+        # this is a stat check, not a chmod/chown.
+        actual_owner_group_mode="$(stat -c '%U:%G:%a' "$SUDOERS_FILE")"
+        expected_owner_group_mode="${SUDOERS_OWNER}:${SUDOERS_GROUP}:440"
+        if [[ "$actual_owner_group_mode" != "$expected_owner_group_mode" ]]; then
+            stop "'${SUDOERS_FILE}' content matches, but ownership/mode is" \
+                 "'${actual_owner_group_mode}', expected '${expected_owner_group_mode}'" \
+                 "-- never silently re-chmod/chown; investigate before deciding what to do"
+        fi
+        log "'${SUDOERS_FILE}': PASS (already present, matches current personas.yaml," \
+            "ownership/mode conform)"
         exit 0
     fi
 

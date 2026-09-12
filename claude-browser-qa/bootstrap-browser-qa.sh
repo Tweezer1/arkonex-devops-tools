@@ -269,14 +269,30 @@ cmd_systemd_install() {
         log "systemd-install: enabled + restarted browser-qa-refresh@${persona}.timer"
     done <<< "$personas"
 
-    # Post-check proof (OPEN-125 correctif 2026-09-12): the exact failure mode that
-    # caused the original regression is a timer sitting "active (elapsed)" with no
-    # next run at all -- print it immediately so that never goes unnoticed again.
-    log "systemd-install: next scheduled run per persona (must NOT be blank):"
+    # Post-check gate, not just a print (independent review finding: the previous
+    # version only printed `list-timers` with a "must NOT be blank" comment, never
+    # actually checked it -- a future silent recurrence of the exact regression this
+    # correctif fixes would print a warning-shaped line in a non-interactive/batch
+    # redeploy that nobody is guaranteed to read, rather than failing the command loudly.
+    local install_failed=0
     while IFS= read -r persona; do
         [[ -z "$persona" ]] && continue
         systemctl list-timers "browser-qa-refresh@${persona}.timer" --no-pager
+        next_elapse="$(systemctl show "browser-qa-refresh@${persona}.timer" \
+            -p NextElapseUSecRealtime --value)"
+        if [[ -z "$next_elapse" ]]; then
+            echo "systemd-install: FAIL -- browser-qa-refresh@${persona}.timer has no" \
+                "next scheduled run after install (NextElapseUSecRealtime empty) --" \
+                "this is exactly the OPEN-125 regression signature" >&2
+            install_failed=1
+        else
+            log "systemd-install: browser-qa-refresh@${persona}.timer next run: ${next_elapse}"
+        fi
     done <<< "$personas"
+
+    if [[ "$install_failed" -eq 1 ]]; then
+        return 1
+    fi
 }
 
 # ---------------------------------------------------------------------------
