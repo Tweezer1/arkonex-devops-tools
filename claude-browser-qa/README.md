@@ -81,11 +81,21 @@ correction déjà actée dans l'Issue avant diagnostic complet.
     menu utilisateur "E2E Tests" ; `playwright-estimate_manager` → snapshot confirmant
     "E2E Estimate Manager", menu Desk plus large cohérent avec son rôle — deux identités
     distinctes correctement rendues.
-  - `[À VALIDER]` nouvelle session Claude Code **distincte** (processus séparé) avec
-    navigateur authentifié sous les deux personas — pas encore fait dans cette session-ci
-    par construction (une session ne peut pas prouver qu'une AUTRE session fonctionne).
-  - 44/44 tests (`tests/run-phase-a-tests.sh`), dont 4 couvrant précisément les deux bugs
-    de revue ci-dessus (T42-T44).
+  - `[PROUVÉ]` nouvelle session Claude Code **distincte** (processus séparé) : a exécuté
+    `prepare-persona.sh` pour les deux personas (`PASS (ALREADY_VALID)`) puis confirmé les
+    deux identités par navigation/snapshot MCP réels — aucun élément `[À VALIDER]` restant
+    côté infrastructure.
+  - **Revue U2 indépendante terminée** : un agent reviewer séparé a trouvé 1 finding
+    **majeur** (chemin `/tmp` prévisible pour la sortie `visudo`, risque symlink CWE-59/377
+    contre le chemin root `--apply`) et 4 **mineurs** (revérification ownership/mode
+    manquante sur le chemin rapide, charset de persona non validé avant rendu de la règle
+    sudoers, échec de lecture de `personas.yaml` invisible à `set -e`, post-check
+    `systemd-install` non bloquant). Tous corrigés, chacun vérifié par reproduction réelle
+    (fixture dédiée, fichier à mode corrompu, chemin inexistant, absence statique du motif
+    vulnérable) — jamais par simple lecture.
+  - 49/49 tests (`tests/run-phase-a-tests.sh`), dont 4 couvrant les deux bugs de revue
+    humaine (T42-T44) et 5 couvrant les 5 findings de la revue U2 indépendante (T45-T49),
+    stable sur 5 exécutions consécutives.
 
 **Réserve documentée** (acceptée explicitement, voir clôture #87) : le rollback DNS
 (`dns_rollback`) et le rollback config (`.mcp.json`, restauration depuis un backup réel)
@@ -313,9 +323,9 @@ finale 6h rétablie automatiquement et sa prochaine échéance revérifiée non 
 
 Le mécanisme (règle sudo scopée, script, comportements de concurrence/échec) est livré et
 son cycle complet — détection d'un état invalide, appel sudo, renouvellement,
-reconfirmation, navigateur MCP réel après coup — a été vérifié de bout en bout par
-exécution réelle (voir « Statut » ci-dessus). Ce qui reste `[À VALIDER]` : une nouvelle
-session Claude Code distincte sous les deux personas — voir
+reconfirmation, navigateur MCP réel après coup, y compris depuis une session Claude Code
+distincte — a été vérifié de bout en bout par exécution réelle (voir « Statut »
+ci-dessus). Revue U2 indépendante terminée, tous findings corrigés — voir
 [Issue #87](https://github.com/Tweezer1/arkonex-ops-docs/issues/87) pour l'état courant.
 
 `prepare-persona.sh <persona>` est l'unique point d'entrée qu'une session Claude Code
