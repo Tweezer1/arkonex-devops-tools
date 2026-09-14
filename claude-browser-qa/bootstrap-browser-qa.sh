@@ -274,16 +274,42 @@ cmd_systemd_install() {
     # actually checked it -- a future silent recurrence of the exact regression this
     # correctif fixes would print a warning-shaped line in a non-interactive/batch
     # redeploy that nobody is guaranteed to read, rather than failing the command loudly.
+    #
+    # Bounded retry on the query itself (distinct regression, live 2026-09-14, first-ever
+    # install of a brand-new persona, e.g. `sales_user`): `enable` + `restart` above
+    # completed successfully (systemd would have aborted this script under `set -e`
+    # otherwise), yet this immediate `NextElapseUSecRealtime` query still read empty --
+    # and re-running the *identical* systemd-install invocation seconds later, with no
+    # other change, succeeded. That isolates the gap to this property read racing the
+    # manager's internal state propagation for a timer instance systemd has never loaded
+    # before -- not to enable/restart needing to be redone -- so the fix is a short,
+    # bounded re-query of the SAME already-active unit, never a repeated enable/restart.
+    # Zero-cost on every already-known persona (redeploy path), which resolves first try.
+    local next_elapse_retries="${BROWSER_QA_NEXT_ELAPSE_RETRIES:-5}"
+    local next_elapse_retry_sleep="${BROWSER_QA_NEXT_ELAPSE_RETRY_SLEEP:-1}"
     local install_failed=0
     while IFS= read -r persona; do
         [[ -z "$persona" ]] && continue
         systemctl list-timers "browser-qa-refresh@${persona}.timer" --no-pager
-        next_elapse="$(systemctl show "browser-qa-refresh@${persona}.timer" \
-            -p NextElapseUSecRealtime --value)"
+        next_elapse=""
+        local attempt
+        for (( attempt=1; attempt<=next_elapse_retries; attempt++ )); do
+            next_elapse="$(systemctl show "browser-qa-refresh@${persona}.timer" \
+                -p NextElapseUSecRealtime --value)"
+            [[ -n "$next_elapse" ]] && break
+            if [[ "$attempt" -lt "$next_elapse_retries" ]]; then
+                log "systemd-install: browser-qa-refresh@${persona}.timer --" \
+                    "NextElapseUSecRealtime empty on attempt ${attempt}/${next_elapse_retries}," \
+                    "retrying in ${next_elapse_retry_sleep}s (known transient gap on a" \
+                    "persona's very first-ever install, 2026-09-14, Issue #87)"
+                sleep "$next_elapse_retry_sleep"
+            fi
+        done
         if [[ -z "$next_elapse" ]]; then
             echo "systemd-install: FAIL -- browser-qa-refresh@${persona}.timer has no" \
-                "next scheduled run after install (NextElapseUSecRealtime empty) --" \
-                "this is exactly the OPEN-125 regression signature" >&2
+                "next scheduled run after install and ${next_elapse_retries} retries" \
+                "(NextElapseUSecRealtime empty) -- this is exactly the OPEN-125" \
+                "regression signature" >&2
             install_failed=1
         else
             log "systemd-install: browser-qa-refresh@${persona}.timer next run: ${next_elapse}"

@@ -105,6 +105,28 @@ le fichier de production — jugé disproportionné (risque de casser la résolu
 MCP actifs pour une valeur de preuve marginale). À reconsidérer si un incident réel touche
 un jour cette infrastructure.
 
+**Correctif additionnel du 14 septembre 2026 (persona `sales_user`, premier install)** :
+lors du tout premier `systemd-install --apply` d'un persona jamais installé auparavant,
+`enable` + `restart` ont réussi (le script aurait échoué sous `set -e` sinon), mais le
+post-check `NextElapseUSecRealtime` a lu vide et a fait échouer la commande — puis la
+**même invocation `systemd-install --apply`, rejouée à l'identique**, a réussi sans autre
+changement. `[PROUVÉ-CODE]` par la trace de cet incident (échec puis succès immédiat de la
+commande identique, sans intervention entre les deux) : ceci isole l'écart à cette lecture
+de propriété qui course l'état interne du manager pour une instance de timer jamais chargée
+auparavant — **pas** à un besoin de refaire `enable`/`restart`. Correctif appliqué : une
+nouvelle tentative bornée (5 essais, 1s d'attente, configurable via
+`BROWSER_QA_NEXT_ELAPSE_RETRIES`/`BROWSER_QA_NEXT_ELAPSE_RETRY_SLEEP`) autour de la seule
+requête `NextElapseUSecRealtime`, sans toucher `enable`/`restart` — coût nul sur le chemin
+déjà connu (redéploiement), qui réussit toujours du premier coup. `tests/T50` couvre ce
+correctif statiquement (retry borné présent, jamais de boucle non bornée, gate `FAIL`
+préservé) — **`[À VALIDER]`** : ce mécanisme n'a **pas** été réexécuté en conditions réelles
+(`sudo bash bootstrap-browser-qa.sh systemd-install --apply` avec un persona jamais vu du
+tout) par la session ayant écrit ce correctif, celle-ci n'ayant pas l'accès root nécessaire
+(voir « Division du travail » ci-dessous) — un humain doit confirmer par exécution réelle
+sur un persona véritablement nouveau avant de considérer la cause racine définitivement
+close, pas seulement plausible (voir « Division du travail » sous « `personas.yaml` —
+extensibilité N-personas » ci-dessous pour la frontière root/Claude exacte).
+
 Toute évolution future (N-ème persona, montée de version MCP/navigateur, changement de
 cadence timer) reste un changement contrôlé séparé, jamais une improvisation pendant une
 session Browser QA — voir « Ce que ce répertoire ne fait jamais » ci-dessous.
