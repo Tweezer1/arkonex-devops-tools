@@ -42,3 +42,12 @@ personas:
     credentials_file: "estimate_manager.env"
     storage_state_file: "estimate_manager.json"
     mcp_server_name: "playwright-estimate_manager"
+
+  sales_user:
+    enabled: true
+    display_name: "Sales User (canary)"
+    login_user_id: "e2e-sales-user@arkonex.ca"
+    expected_role: "Sales User"
+    credentials_file: "sales_user.env"
+    storage_state_file: "sales_user.json"
+    mcp_server_name: "playwright-sales_user"
