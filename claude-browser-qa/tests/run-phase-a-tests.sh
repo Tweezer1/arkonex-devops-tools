@@ -60,10 +60,19 @@ python3 "$CBQ_DIR/generate-mcp-config.py" \
 rc=$?
 if [[ $rc -eq 0 ]]; then
     python3 -c "
-import json
+import json, sys
+sys.path.insert(0, '$CBQ_DIR/lib')
+from simple_yaml import load_personas
+manifest = load_personas('$CBQ_DIR/personas.yaml')
+# Le nom de serveur attendu vient du manifeste lui-meme (mcp_server_name), jamais d'une
+# liste figee ici -- sinon ce test recode 'exactement N personas' et casse a chaque ajout
+# legitime (OPEN-129 (#96), sales_user en etant la preuve concrete).
+expected = sorted(
+    entry['mcp_server_name'] for entry in manifest.values() if entry.get('enabled') is True
+)
 d = json.load(open('$CAND1'))
 names = sorted(d['mcpServers'].keys())
-assert names == ['playwright-estimate_manager', 'playwright-estimate_user'], names
+assert names == expected, (names, expected)
 print('server names match exactly the enabled personas:', names)
 "
     rc=$?
@@ -225,7 +234,7 @@ else
 fi
 check "T15_strict_boolean_enabled" "$rc"
 
-echo "### T16 -- generated config for the real personas.yaml is still exactly the 2 expected servers (no duplicate/traversal regression on real data)"
+echo "### T16 -- generated config for the real personas.yaml still matches exactly its enabled:true personas (no duplicate/traversal regression on real data)"
 CAND_REAL="$TMP_ROOT/mcp.real-recheck.json"
 python3 "$CBQ_DIR/generate-mcp-config.py" \
     --personas "$CBQ_DIR/personas.yaml" \
@@ -234,11 +243,20 @@ python3 "$CBQ_DIR/generate-mcp-config.py" \
 rc=$?
 if [[ $rc -eq 0 ]]; then
     python3 -c "
-import json
+import json, sys
+sys.path.insert(0, '$CBQ_DIR/lib')
+from simple_yaml import load_personas
+manifest = load_personas('$CBQ_DIR/personas.yaml')
+# Meme principe qu'en T03 : l'attendu vient du manifeste (enabled:true), jamais d'une
+# liste de noms figee -- ce test verifie l'ABSENCE de regression (doublon/traversal),
+# pas un decompte fige de personas.
+expected = sorted(
+    entry['mcp_server_name'] for entry in manifest.values() if entry.get('enabled') is True
+)
 d = json.load(open('$CAND_REAL'))
 names = sorted(d['mcpServers'].keys())
-assert names == ['playwright-estimate_manager', 'playwright-estimate_user'], names
-print('real personas.yaml still generates exactly:', names)
+assert names == expected, (names, expected)
+print('real personas.yaml still generates exactly its enabled personas:', names)
 "
     rc=$?
 fi
