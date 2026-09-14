@@ -60,10 +60,19 @@ python3 "$CBQ_DIR/generate-mcp-config.py" \
 rc=$?
 if [[ $rc -eq 0 ]]; then
     python3 -c "
-import json
+import json, sys
+sys.path.insert(0, '$CBQ_DIR/lib')
+from simple_yaml import load_personas
+manifest = load_personas('$CBQ_DIR/personas.yaml')
+# Le nom de serveur attendu vient du manifeste lui-meme (mcp_server_name), jamais d'une
+# liste figee ici -- sinon ce test recode 'exactement N personas' et casse a chaque ajout
+# legitime (OPEN-129 (#96), sales_user en etant la preuve concrete).
+expected = sorted(
+    entry['mcp_server_name'] for entry in manifest.values() if entry.get('enabled') is True
+)
 d = json.load(open('$CAND1'))
 names = sorted(d['mcpServers'].keys())
-assert names == ['playwright-estimate_manager', 'playwright-estimate_user'], names
+assert names == expected, (names, expected)
 print('server names match exactly the enabled personas:', names)
 "
     rc=$?
@@ -225,7 +234,7 @@ else
 fi
 check "T15_strict_boolean_enabled" "$rc"
 
-echo "### T16 -- generated config for the real personas.yaml is still exactly the 2 expected servers (no duplicate/traversal regression on real data)"
+echo "### T16 -- generated config for the real personas.yaml still matches exactly its enabled:true personas (no duplicate/traversal regression on real data)"
 CAND_REAL="$TMP_ROOT/mcp.real-recheck.json"
 python3 "$CBQ_DIR/generate-mcp-config.py" \
     --personas "$CBQ_DIR/personas.yaml" \
@@ -234,11 +243,20 @@ python3 "$CBQ_DIR/generate-mcp-config.py" \
 rc=$?
 if [[ $rc -eq 0 ]]; then
     python3 -c "
-import json
+import json, sys
+sys.path.insert(0, '$CBQ_DIR/lib')
+from simple_yaml import load_personas
+manifest = load_personas('$CBQ_DIR/personas.yaml')
+# Meme principe qu'en T03 : l'attendu vient du manifeste (enabled:true), jamais d'une
+# liste de noms figee -- ce test verifie l'ABSENCE de regression (doublon/traversal),
+# pas un decompte fige de personas.
+expected = sorted(
+    entry['mcp_server_name'] for entry in manifest.values() if entry.get('enabled') is True
+)
 d = json.load(open('$CAND_REAL'))
 names = sorted(d['mcpServers'].keys())
-assert names == ['playwright-estimate_manager', 'playwright-estimate_user'], names
-print('real personas.yaml still generates exactly:', names)
+assert names == expected, (names, expected)
+print('real personas.yaml still generates exactly its enabled personas:', names)
 "
     rc=$?
 fi
@@ -686,6 +704,27 @@ grep -q 'NextElapseUSecRealtime --value' "$CBQ_DIR/bootstrap-browser-qa.sh" || r
 grep -q 'install_failed=1' "$CBQ_DIR/bootstrap-browser-qa.sh" || rc=1
 grep -A2 'if \[\[ "\$install_failed" -eq 1 \]\]; then' "$CBQ_DIR/bootstrap-browser-qa.sh" | grep -q 'return 1' || rc=1
 check "T49_systemd_install_next_elapse_is_a_hard_gate" "$rc"
+
+echo "### T50 -- bootstrap-browser-qa.sh systemd-install: the NextElapseUSecRealtime post-check retries before FAILing, bounded, on the SAME unit (regression, live 2026-09-14: a brand-new persona's very first-ever install read empty once, then succeeded on an identical re-run with no other change -- isolates the gap to this query racing manager state, not to enable/restart needing to be redone)"
+rc=0
+# The retry loop must wrap the query itself, inside the per-persona post-check block --
+# not a blanket retry of the whole install (which would re-run enable/restart every
+# time and mask whether THAT was ever the actual fix).
+grep -q 'next_elapse_retries="\${BROWSER_QA_NEXT_ELAPSE_RETRIES:-' "$CBQ_DIR/bootstrap-browser-qa.sh" || rc=1
+grep -q 'for (( attempt=1; attempt<=next_elapse_retries; attempt++ ))' "$CBQ_DIR/bootstrap-browser-qa.sh" || rc=1
+# Bounded: a fixed, finite attempt count, never a `while true`/unbounded retry.
+grep -q 'while true' "$CBQ_DIR/bootstrap-browser-qa.sh" && rc=1
+# The hard gate itself (T49) must survive this change unweakened: still FAILs and
+# returns 1 when every retry is exhausted, never silently downgraded to a warning.
+grep -A6 'for (( attempt=1; attempt<=next_elapse_retries' "$CBQ_DIR/bootstrap-browser-qa.sh" \
+    | grep -q 'break' || rc=1
+echo "$(sed -n '270,320p' "$CBQ_DIR/bootstrap-browser-qa.sh")" | grep -q 'install_failed=1' || rc=1
+# Zero-cost on the already-known-persona path: the retry loop must not precede/replace
+# the existing `enable` + `restart` calls, only the post-check query after them.
+enable_line="$( (grep -n 'systemctl enable "browser-qa-refresh@\${persona}.timer"' "$CBQ_DIR/bootstrap-browser-qa.sh" || true) | head -1 | cut -d: -f1)"
+retry_line="$( (grep -n 'next_elapse_retries="\${BROWSER_QA_NEXT_ELAPSE_RETRIES:-' "$CBQ_DIR/bootstrap-browser-qa.sh" || true) | head -1 | cut -d: -f1)"
+[[ -n "$enable_line" && -n "$retry_line" && "$retry_line" -gt "$enable_line" ]] || rc=1
+check "T50_systemd_install_next_elapse_retry_bounded_and_scoped" "$rc"
 
 echo
 echo "=================================================="

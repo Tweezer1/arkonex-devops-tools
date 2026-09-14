@@ -105,6 +105,28 @@ le fichier de production — jugé disproportionné (risque de casser la résolu
 MCP actifs pour une valeur de preuve marginale). À reconsidérer si un incident réel touche
 un jour cette infrastructure.
 
+**Correctif additionnel du 14 septembre 2026 (persona `sales_user`, premier install)** :
+lors du tout premier `systemd-install --apply` d'un persona jamais installé auparavant,
+`enable` + `restart` ont réussi (le script aurait échoué sous `set -e` sinon), mais le
+post-check `NextElapseUSecRealtime` a lu vide et a fait échouer la commande — puis la
+**même invocation `systemd-install --apply`, rejouée à l'identique**, a réussi sans autre
+changement. `[PROUVÉ-CODE]` par la trace de cet incident (échec puis succès immédiat de la
+commande identique, sans intervention entre les deux) : ceci isole l'écart à cette lecture
+de propriété qui course l'état interne du manager pour une instance de timer jamais chargée
+auparavant — **pas** à un besoin de refaire `enable`/`restart`. Correctif appliqué : une
+nouvelle tentative bornée (5 essais, 1s d'attente, configurable via
+`BROWSER_QA_NEXT_ELAPSE_RETRIES`/`BROWSER_QA_NEXT_ELAPSE_RETRY_SLEEP`) autour de la seule
+requête `NextElapseUSecRealtime`, sans toucher `enable`/`restart` — coût nul sur le chemin
+déjà connu (redéploiement), qui réussit toujours du premier coup. `tests/T50` couvre ce
+correctif statiquement (retry borné présent, jamais de boucle non bornée, gate `FAIL`
+préservé) — **`[À VALIDER]`** : ce mécanisme n'a **pas** été réexécuté en conditions réelles
+(`sudo bash bootstrap-browser-qa.sh systemd-install --apply` avec un persona jamais vu du
+tout) par la session ayant écrit ce correctif, celle-ci n'ayant pas l'accès root nécessaire
+(voir « Division du travail » ci-dessous) — un humain doit confirmer par exécution réelle
+sur un persona véritablement nouveau avant de considérer la cause racine définitivement
+close, pas seulement plausible (voir « Division du travail » sous « `personas.yaml` —
+extensibilité N-personas » ci-dessous pour la frontière root/Claude exacte).
+
 Toute évolution future (N-ème persona, montée de version MCP/navigateur, changement de
 cadence timer) reste un changement contrôlé séparé, jamais une improvisation pendant une
 session Browser QA — voir « Ce que ce répertoire ne fait jamais » ci-dessous.
@@ -194,13 +216,26 @@ racine, section Browser QA) :
 | Étape | Qui | Commande / action |
 |---|---|---|
 | 1. Ajouter l'entrée dans `personas.yaml` | Claude | édition directe (0 secret, versionné) |
-| 2. Créer le compte Frappe/ERPNext + assigner ses rôles | Claude, **sous le contrat/gate du lot qui en a besoin**, pas sous OPEN-125 | ORM Frappe (`bench console` ou équivalent autorisé par ce lot) |
-| 3. Régénérer `.mcp.json` | Claude | `bash bootstrap-browser-qa.sh generate-config --apply` |
-| 4. **Provisionner le mot de passe** | **Humain, terminal réel, jamais Claude Code** | `sudo -u browserqa-refresh bash credentials-configure.sh <persona>` |
-| 5. Installer l'instance timer + la règle sudo | **Humain** (root, aucun secret) | `sudo bash bootstrap-browser-qa.sh systemd-install --apply` puis `sudoers-install --apply` |
-| 6. Premier login réel + confirmation d'identité | Claude | `bash prepare-persona.sh <persona>` |
+| 2. **Déployer la copie contrôlée** | Claude | `bash bootstrap-browser-qa.sh deploy --apply` |
+| 3. Créer le compte Frappe/ERPNext + assigner ses rôles | Claude, **sous le contrat/gate du lot qui en a besoin**, pas sous OPEN-125 | ORM Frappe (`bench console` ou équivalent autorisé par ce lot) |
+| 4. Régénérer `.mcp.json` | Claude | `bash bootstrap-browser-qa.sh generate-config --apply` |
+| 5. **Provisionner le mot de passe du refresher** | **Humain, terminal réel, jamais Claude Code** | `sudo -u browserqa-refresh bash credentials-configure.sh <persona>` |
+| 6. **Définir le mot de passe réel du compte Frappe** | **Humain, terminal réel, jamais Claude Code** | `bench --site <site> set-password <login_user_id>` (sans argument -> prompt masqué) |
+| 7. Installer l'instance timer + la règle sudo | **Humain** (root, aucun secret) | `sudo bash bootstrap-browser-qa.sh systemd-install --apply` puis `sudoers-install --apply` |
+| 8. Premier login réel + confirmation d'identité | Claude | `bash prepare-persona.sh <persona>` |
 
-**Étape 4 : pourquoi c'est un mur technique, pas une convention.** `credentials-configure.sh`
+**Étape 2 : pourquoi elle est obligatoire, pas une commodité.** Toutes les commandes
+runtime (`prepare-persona.sh`, le service `browser-qa-refresh@<persona>`, `refresh-persona.sh`)
+lisent `personas.yaml` depuis la copie déployée (`/opt/arkonex-browser-qa/claude-browser-qa/`,
+cf. section « Déploiement » ci-dessus), **jamais** depuis ce checkout. Éditer `personas.yaml`
+ici (étape 1) sans redéployer laisse la copie déployée périmée : le service échoue avec
+`resolve_persona_field: unknown persona '<persona>'` — **incident réel, OPEN-129/#96,
+2026-09-14** : l'étape 2 avait été omise (seule l'étape 4, `generate-config`, avait été
+faite), provoquant exactement cette erreur jusqu'à ce que `deploy --apply` soit exécuté.
+Régénérer `.mcp.json` (étape 4) ne redéploie **pas** `personas.yaml` — ce sont deux
+opérations indépendantes, l'une n'implique jamais l'autre.
+
+**Étape 5 : pourquoi c'est un mur technique, pas une convention.** `credentials-configure.sh`
 refuse de s'exécuter si l'entrée n'est pas un vrai TTY interactif (pas de pipe, pas
 d'automatisation), et le répertoire cible
 (`/etc/arkonex/browser-qa/credentials/`, mode `0700`, propriétaire `browserqa-refresh`)
@@ -208,12 +243,43 @@ est illisible/inscriptible pour `frappe` — c'est le système de fichiers qui l
 Claude ne pourrait pas contourner ça même en essayant. Le mot de passe n'est jamais
 visible, transmis ou proposé par Claude, à aucune étape.
 
-**Étape 5 : pourquoi c'est un humain, alors qu'il n'y a pas de secret.** Simple manque de
+**Étape 6 : pourquoi elle est distincte de l'étape 5, et tout aussi obligatoire.**
+`credentials-configure.sh` (étape 5) provisionne uniquement le mot de passe que
+`refresh-persona.sh` utilisera pour se connecter — il ne touche **jamais** le compte
+Frappe/ERPNext lui-même. Si le compte créé à l'étape 3 n'a jamais reçu de mot de passe
+côté Frappe (cas normal d'un `User` inséré par l'ORM sans email de bienvenue), la
+connexion échoue silencieusement côté Frappe (identifiants invalides) et
+`playwright-login.mjs` observe un timeout sans jamais atteindre l'état post-connexion —
+symptôme observé dans le journal : `playwright-login: no post-login navigation observed
+within timeout (treated as FAIL, never as success)`, puis `refresh-persona[<persona>]:
+FAIL — login did not produce a candidate storageState`. **Incident réel, OPEN-129/#96,
+2026-09-14** : cette étape manquait entièrement de la procédure jusqu'à cette correction ;
+`bench --site <site> set-password <login_user_id>` (sans argument -> prompt masqué,
+jamais en argument de ligne de commande) doit définir **le même** mot de passe que celui
+saisi à l'étape 5 — sinon la connexion échoue de la même façon.
+
+**Étape 7 : pourquoi c'est un humain, alors qu'il n'y a pas de secret.** Simple manque de
 privilège root interactif côté Claude (documenté sous OPEN-125) — `systemd-install` et
 `sudoers-install` ne lisent ni n'écrivent jamais de credential ; Claude peut préparer les
 deux commandes exactes à copier-coller, mais ne peut pas les exécuter lui-même.
 
-Aucune modification de script n'est jamais nécessaire pour ces 6 étapes — preuve
+**Étape 7, piège opérationnel** : si `systemd-install --apply` échoue 3 fois en moins de
+10 minutes (`StartLimitIntervalSec=600`/`StartLimitBurst=3` sur le service), systemd
+refuse tout nouveau démarrage avec `Start request repeated too quickly` — y compris une
+tentative dont la cause réelle a déjà été corrigée entre-temps. Réinitialiser le
+compteur avant de retenter : `sudo systemctl reset-failed browser-qa-refresh@<persona>.service`
+(action admin standard, aucun secret). Voir aussi l'addendum plus bas sur la race de
+premier install (`NextElapseUSecRealtime` vide), déjà corrigée dans
+`cmd_systemd_install` avec une nouvelle relecture bornée.
+
+**Étape 8, piège spécifique à une session Claude Code déjà ouverte.** Le client MCP
+charge `.mcp.json` **au démarrage de la session**, pas en continu : une session déjà
+ouverte AVANT l'étape 4 (régénération de `.mcp.json`) ne verra jamais le nouveau serveur
+`playwright-<persona>`, même après l'étape 8 réussie (`ToolSearch` ne le trouvera pas).
+Il faut démarrer une **nouvelle** session Claude Code pour l'utiliser réellement — ce
+n'est pas une erreur à diagnostiquer, juste une limite du cycle de vie MCP de ce client.
+
+Aucune modification de script n'est jamais nécessaire pour ces 8 étapes — preuve
 structurelle : `tests/T10` (« PERSONA_EXTENSION_TEST ») génère une config `.mcp.json`
 valide pour un 3e persona fictif sans toucher un seul fichier commun.
 
