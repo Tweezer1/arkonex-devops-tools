@@ -51,3 +51,21 @@ personas:
     credentials_file: "sales_user.env"
     storage_state_file: "sales_user.json"
     mcp_server_name: "playwright-sales_user"
+
+  quality_manager:
+    enabled: true
+    display_name: "Quality Manager (canary, OPEN-130)"
+    login_user_id: "e2e-quality-manager@arkonex.ca"
+    expected_role: "Quality Manager"
+    credentials_file: "quality_manager.env"
+    storage_state_file: "quality_manager.json"
+    mcp_server_name: "playwright-quality_manager"
+
+  projects_manager:
+    enabled: true
+    display_name: "Projects Manager (canary, OPEN-130)"
+    login_user_id: "e2e-projects-manager@arkonex.ca"
+    expected_role: "Projects Manager"
+    credentials_file: "projects_manager.env"
+    storage_state_file: "projects_manager.json"
+    mcp_server_name: "playwright-projects_manager"
