@@ -87,3 +87,12 @@ personas:
     credentials_file: "employee.env"
     storage_state_file: "employee.json"
     mcp_server_name: "playwright-employee"
+
+  hr_manager:
+    enabled: true
+    display_name: "HR Manager (canary, OPEN-145 L2)"
+    login_user_id: "e2e-hr-manager@arkonex.ca"
+    expected_role: "HR Manager"
+    credentials_file: "hr_manager.env"
+    storage_state_file: "hr_manager.json"
+    mcp_server_name: "playwright-hr_manager"
