@@ -69,3 +69,30 @@ personas:
     credentials_file: "projects_manager.env"
     storage_state_file: "projects_manager.json"
     mcp_server_name: "playwright-projects_manager"
+
+  accounts_user:
+    enabled: true
+    display_name: "Accounts User (canary, OPEN-145 L2)"
+    login_user_id: "e2e-accounts-user@arkonex.ca"
+    expected_role: "Accounts User"
+    credentials_file: "accounts_user.env"
+    storage_state_file: "accounts_user.json"
+    mcp_server_name: "playwright-accounts_user"
+
+  employee:
+    enabled: true
+    display_name: "Employee (canary, OPEN-145 L2)"
+    login_user_id: "e2e-employee@arkonex.ca"
+    expected_role: "Employee, Employee Self Service"
+    credentials_file: "employee.env"
+    storage_state_file: "employee.json"
+    mcp_server_name: "playwright-employee"
+
+  hr_manager:
+    enabled: true
+    display_name: "HR Manager (canary, OPEN-145 L2)"
+    login_user_id: "e2e-hr-manager@arkonex.ca"
+    expected_role: "HR Manager"
+    credentials_file: "hr_manager.env"
+    storage_state_file: "hr_manager.json"
+    mcp_server_name: "playwright-hr_manager"
