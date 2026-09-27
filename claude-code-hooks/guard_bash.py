@@ -36,10 +36,13 @@ SITE_OK = re.compile(r"^(?:deverp\.arkonex\.ca|" + _LABEL + r"(?:\." + _LABEL + 
 # Un nom d'hôte cité dans un texte ou dans des données envoyées ne déclenche rien.
 HOST_AT_START = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*://)?(?:[^@/\s:]+@)?"
                            r"((?:[A-Za-z0-9-]+\.)*arkonex\.ca)(?=$|[:/?#])", re.I)
-# Hôte arkonex.ca dans du code (python -c, heredoc donné à python, bench console…) :
-# URL (://hôte) ou nom d'hôte seul entre guillemets.
+# Hôte arkonex.ca dans le code réellement exécuté par un interpréteur (argument de -c/-e,
+# heredoc donné à python/node/bench console, arguments de bench execute) : URL (://hôte) ou
+# nom d'hôte seul passé en argument d'un appel — SMTP('hôte'), connect(("hôte", 22)).
+# Une simple mention du nom dans un texte ne déclenche rien.
 CODE_HOST = re.compile(r"://(?:[^@/\s'\"]+@)?((?:[A-Za-z0-9-]+\.)*arkonex\.ca)(?![A-Za-z0-9.-])"
-                       r"|(['\"])((?:[A-Za-z0-9-]+\.)*arkonex\.ca)\2", re.I)
+                       r"|\(\s*\(?\s*(['\"])((?:[A-Za-z0-9-]+\.)*arkonex\.ca)\2", re.I)
+CODE_OPTS = {"-c", "-e", "-E", "-p", "-r", "--eval", "--print"}
 
 NET_CMDS = {"curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet",
             "http", "https", "xh", "ftp", "lftp", "socat", "mosh"}
@@ -55,7 +58,8 @@ DATA_OPTS = {
              "--user", "--password", "-P", "--directory-prefix"},
 }
 DATA_OPTS["http"] = DATA_OPTS["https"] = DATA_OPTS["xh"] = DATA_OPTS["curl"]
-INTERPRETERS = re.compile(r"^(?:python\d*(?:\.\d+)?|pypy\d*|node|nodejs|perl|ruby|php|deno|bun)$")
+_INTERP = r"(?:python\d*(?:\.\d+)?|pypy\d*|node|nodejs|perl|ruby|php|deno|bun)"
+INTERPRETERS = re.compile(r"^" + _INTERP + r"$")
 SQL_CMDS = {"mysql", "mariadb", "mysqldump", "mariadb-dump", "mysqladmin", "mariadb-admin",
             "mysqlshow", "mariadb-show"}
 BENCH_SQL_SUBCMDS = {"mariadb", "db-console", "mysql", "postgres"}
@@ -110,7 +114,6 @@ class Verdicts:
 
     def __init__(self):
         self.items = []
-        self.runs_code = False    # un interpréteur (python, node, bench console…) est lancé
 
     def add(self, decision, rule, **fmt):
         self.items.append((decision, rule, MSG[rule].format(**fmt)))
@@ -124,6 +127,9 @@ class Verdicts:
 # ------------------------------------------------------------------------------ lecture
 
 _HEREDOC = re.compile(r"<<(-?)[ \t]*(\\?)(['\"]?)([A-Za-z0-9_.-]+)\3")
+_CODE_BEFORE = re.compile(r"(?:^|[;&|(])\s*(?:\S+=\S*\s+)*(?:(?:sudo|env|exec|timeout|nohup)"
+                          r"(?:\s+\S+)*?\s+)?(?:(?:\S*/)?" + _INTERP + r"\b|(?:\S*/)?bench\b"
+                          r"[^;&|]*\b(?:console|execute)\b)[^;&|]*$")
 _SHELL_BEFORE = re.compile(r"(?:^|[;&|(])\s*(?:\S+=\S*\s+)*(?:(?:sudo|env|exec|timeout|nohup)"
                            r"(?:\s+\S+)*?\s+)?(?:\S*/)?(?:bash|sh|dash|zsh|ksh)\b[^;&|]*$")
 
@@ -181,7 +187,8 @@ def _scan(line, stack, pending, buf):
                         mode = "literal"               # délimiteur protégé : texte pur
                     else:
                         mode = "expand"                # bash exécute les $( ) et ` `
-                    pending.append((m.group(4), m.group(1) == "-", mode))
+                    is_code = mode != "shell" and bool(_CODE_BEFORE.search(line[:j]))
+                    pending.append((m.group(4), m.group(1) == "-", mode, is_code))
                     buf.append(" ")
                     j = m.end()
                     continue
@@ -227,7 +234,7 @@ def _scan(line, stack, pending, buf):
         j += 1
 
 
-def preprocess(src):
+def preprocess(src, code=None):
     """Prépare le texte de la commande pour le découpage : retire commentaires et texte des
     heredocs, traite les continuations de ligne et sort le contenu des substitutions
     $( ... ) et `...` de leurs guillemets pour qu'il soit analysé comme une commande.
@@ -235,19 +242,22 @@ def preprocess(src):
     Corps de heredoc : donné à un shell -> analysé comme des commandes ; délimiteur protégé
     (<<'EOF', <<"EOF", <<\\EOF) -> texte pur, ignoré ; délimiteur non protégé (<<EOF) ->
     seuls ses $( ... ) et `...` sont analysés, comme bash les exécute quel que soit le
-    programme qui reçoit le heredoc."""
+    programme qui reçoit le heredoc. Si `code` est une liste, le corps des heredocs donnés
+    à un interpréteur (python, node, bench console…) y est ajouté pour la règle R-HOST-CODE."""
     src = src.replace("\\\r\n", " ").replace("\\\n", " ")
     out = []
     stack = [["N", 0, None]]
-    pending = []          # heredocs en attente : (délimiteur, retrait des tabulations, mode)
+    pending = []          # heredocs en attente : (délimiteur, retrait des tabs, mode, code)
     for line in src.split("\n"):
         if pending:
-            delim, strip_tabs, mode = pending[0]
+            delim, strip_tabs, mode, is_code = pending[0]
             candidate = line.lstrip("\t") if strip_tabs else line
             if candidate.strip() == delim:
                 pending.pop(0)
                 out.append("")
                 continue
+            if is_code and code is not None:
+                code.append(line)
             if mode == "literal":
                 out.append("")
                 continue
@@ -465,8 +475,8 @@ def rule_bench(args, ctx, v):
         else:
             v.add("deny", "R-SITE", site=expanded)
     sub = pos[0] if pos else None
-    if sub in ("console", "execute", "run-tests"):
-        v.runs_code = True
+    if sub == "execute":
+        rule_code_host(" ".join(args), v)
     if sub in BENCH_SQL_SUBCMDS:
         v.add("deny", "R-SQL")
     elif sub == "execute" and len(pos) > 1 and SQL_EXECUTE_TARGETS.match(pos[1]):
@@ -500,6 +510,15 @@ def rule_network(word, args, v):
         if m and m.group(1).lower() != DEV_HOST:
             v.add("deny", "R-HOST", host=m.group(1).lower())
         i += 1
+
+
+def rule_code_host(code, v):
+    """Code exécuté par un interpréteur : URL ou hôte passé à un appel, autre que DEV."""
+    for m in CODE_HOST.finditer(code or ""):
+        host = (m.group(1) or m.group(3)).lower()
+        if host != DEV_HOST:
+            v.add("ask", "R-HOST-CODE", host=host)
+            return
 
 
 _SUDO_WITH_VALUE = {"-u", "-g", "-p", "-C", "-D", "-h", "-r", "-t", "-T", "-U", "--user",
@@ -567,7 +586,9 @@ def analyze_simple(cmd, ctx, v, depth):
         rule_network(word, args, v)     # URL de dépôt : clone, fetch, push, remote add…
         rule_git(args, ctx, v)
     if INTERPRETERS.match(word):
-        v.runs_code = True
+        for k, a in enumerate(args[:-1]):
+            if a in CODE_OPTS:
+                rule_code_host(args[k + 1], v)
     if word == "bench":
         rule_bench(args, ctx, v)
     if word in SHELLS:
@@ -583,9 +604,11 @@ def analyze(text, ctx, v, depth=0):
     """Analyse un texte de commandes ; renvoie False si le découpage a été incertain."""
     if depth > 6 or not text or not text.strip():
         return True
-    tokens, certain = tokenize(preprocess(text))
+    code = []
+    tokens, certain = tokenize(preprocess(text, code))
     for cmd in split_commands(tokens):
         analyze_simple(cmd, ctx, v, depth)
+    rule_code_host("\n".join(code), v)
     return certain
 
 
@@ -593,12 +616,6 @@ def evaluate(command, cwd=None):
     """Renvoie None (rien à signaler) ou (décision, règle, message)."""
     v = Verdicts()
     certain = analyze(command, Context(cwd), v)
-    if v.runs_code:
-        for m in CODE_HOST.finditer(command):
-            host = (m.group(1) or m.group(3)).lower()
-            if host != DEV_HOST:
-                v.add("ask", "R-HOST-CODE", host=host)
-                break
     worst = v.worst()
     if worst and not certain and worst[0] == "deny":
         return ("ask", worst[1], worst[2] + " (découpage incertain de la commande : "

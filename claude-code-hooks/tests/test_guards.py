@@ -67,6 +67,12 @@ CASES = [
     ("curl -e https://desk.arkonex.ca/page -o desk.arkonex.ca.html https://deverp.arkonex.ca/api",
      ALLOW),
     ("python3 -c \"print('jamais desk.arkonex.ca')\"", ALLOW),
+    # RECONTRÔLE : une mention du nom ailleurs dans la commande, ou comme donnée dans le code,
+    # ne rend pas suspect l'interpréteur lancé à côté
+    ("grep -rn 'desk.arkonex.ca' docs/ ; node -e \"1\"", ALLOW),
+    ("grep -rn 'https://desk.arkonex.ca' docs/ && python3 -c \"print(3)\"", ALLOW),
+    ("python3 - <<'EOF'\nfor l in open('f'):\n    if \"desk.arkonex.ca\" in l: print(l)\nEOF", ALLOW),
+    ("cat > x.md <<'EOF'\nvoir https://desk.arkonex.ca\nEOF", ALLOW),
     ("bench --site DEVERP.ARKONEX.CA migrate", ALLOW),
     # REJEU : corps de PR rédigé par heredoc dans une substitution entre guillemets
     ("gh pr create --base main --head lot/x --title t --body \"$(cat <<'EOF'\n"
@@ -111,6 +117,12 @@ CASES = [
     ("python3 -c \"import urllib.request; urllib.request.urlopen('http://desk.arkonex.ca/x')\"", ASK),
     ("python3 -c \"import smtplib; smtplib.SMTP('mail.arkonex.ca')\"", ASK),
     ("python3 - <<'EOF'\nimport requests\nrequests.get('https://desk.arkonex.ca/api')\nEOF", ASK),
+    ("python3 -c \"import socket; socket.create_connection(('desk.arkonex.ca', 443))\"", ASK),
+    ("bench --site deverp.arkonex.ca console <<'EOF'\nrequests.get(\"https://desk.arkonex.ca\")\nEOF",
+     ASK),
+    ("bench --site deverp.arkonex.ca execute frappe.integrations.utils.make_get_request "
+     "--args '[\"https://desk.arkonex.ca/api\"]'", ASK),
+    ("python3 <<EOF\n$(mysql -e 1)\nEOF", DENY),
     # --- Sites bench non autorisés : refus
     ("bench --site all migrate", DENY),
     ("bench --site prod.example.com migrate", DENY),

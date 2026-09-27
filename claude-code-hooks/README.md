@@ -40,7 +40,7 @@ mêmes règles. Corps de heredoc, comme bash les traite :
 |---|---|---|
 | `R-SQL` | client `mysql`/`mariadb` (sauf `--version`/`--help`), `bench … mariadb`/`db-console`, `bench … execute frappe.db.sql` | refus |
 | `R-HOST` | commande réseau (`curl`, `wget`, `ssh`, `scp`, `rsync`…) ou `git` (`clone`, `fetch`, `push`, `remote add`…) dont la **destination** est un hôte `*.arkonex.ca` autre que `deverp.arkonex.ca` ; les données envoyées (`--data`, `-H`, `-e`…) sont ignorées | refus |
-| `R-HOST-CODE` | code exécuté (`python -c`, heredoc donné à `python`/`node`, `bench console`/`execute`) contenant une URL ou un nom d'hôte seul entre guillemets vers un autre serveur `arkonex.ca` | validation humaine |
+| `R-HOST-CODE` | code réellement exécuté par un interpréteur — argument de `-c`/`-e` (python, node, perl…), heredoc donné à un interpréteur ou à `bench console`, arguments de `bench execute` — contenant une URL, ou un nom d'hôte seul passé en argument d'un appel (`SMTP('…')`), vers un autre serveur `arkonex.ca`. Une simple mention du nom, ou une mention ailleurs dans la commande, ne déclenche rien | validation humaine |
 | `R-SITE` | `bench --site X` avec X ni `deverp.arkonex.ca` ni `*.local`, sans distinction de casse (dont `--site all`) | refus |
 | `R-SITE-VAR` | site donné par une variable non résolue | validation humaine |
 | `R-MIGRATE` | `bench migrate` sans `--site` | refus |
@@ -114,7 +114,7 @@ Retour arrière, restauration à l'identique (empreintes vérifiées) :
   dépôt (`--out`), les commandes pouvant contenir des données de travail.
 
 Chaque règle a été vérifiée par mutation : la casser volontairement fait échouer les tests
-(20 ruptures volontaires, toutes détectées).
+(24 ruptures volontaires, toutes détectées).
 
 ## Ajouter ou modifier une règle
 
