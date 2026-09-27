@@ -29,12 +29,33 @@ import sys
 
 DEV_HOST = "deverp.arkonex.ca"
 _LABEL = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
-SITE_OK = re.compile(r"^(?:deverp\.arkonex\.ca|" + _LABEL + r"(?:\." + _LABEL + r")*\.local)$")
-ARKONEX_HOST = re.compile(r"(?<![A-Za-z0-9.-])((?:[A-Za-z0-9-]+\.)*arkonex\.ca)(?![A-Za-z0-9-])",
-                          re.I)
+SITE_OK = re.compile(r"^(?:deverp\.arkonex\.ca|" + _LABEL + r"(?:\." + _LABEL + r")*\.local)$",
+                     re.I)
+# Hôte arkonex.ca en position de CONNEXION : début d'argument, éventuellement précédé d'un
+# schéma (https://, ssh://…) et d'un utilisateur (frappe@), suivi de : / ? # ou de la fin.
+# Un nom d'hôte cité dans un texte ou dans des données envoyées ne déclenche rien.
+HOST_AT_START = re.compile(r"^(?:[A-Za-z][A-Za-z0-9+.-]*://)?(?:[^@/\s:]+@)?"
+                           r"((?:[A-Za-z0-9-]+\.)*arkonex\.ca)(?=$|[:/?#])", re.I)
+# Hôte arkonex.ca dans du code (python -c, heredoc donné à python, bench console…) :
+# URL (://hôte) ou nom d'hôte seul entre guillemets.
+CODE_HOST = re.compile(r"://(?:[^@/\s'\"]+@)?((?:[A-Za-z0-9-]+\.)*arkonex\.ca)(?![A-Za-z0-9.-])"
+                       r"|(['\"])((?:[A-Za-z0-9-]+\.)*arkonex\.ca)\2", re.I)
 
 NET_CMDS = {"curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet",
             "http", "https", "xh", "ftp", "lftp", "socat", "mosh"}
+# Options dont la valeur est une donnée envoyée ou un fichier local, pas une destination.
+DATA_OPTS = {
+    "curl": {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--data-ascii",
+             "--json", "-F", "--form", "--form-string", "-H", "--header", "-e", "--referer",
+             "-A", "--user-agent", "-b", "--cookie", "-c", "--cookie-jar", "-o", "--output",
+             "-T", "--upload-file", "-u", "--user", "-w", "--write-out", "--url-query",
+             "--proxy-header", "-K", "--config"},
+    "wget": {"--post-data", "--body-data", "--post-file", "--body-file", "--header", "-O",
+             "--output-document", "-o", "--output-file", "-U", "--user-agent", "--referer",
+             "--user", "--password", "-P", "--directory-prefix"},
+}
+DATA_OPTS["http"] = DATA_OPTS["https"] = DATA_OPTS["xh"] = DATA_OPTS["curl"]
+INTERPRETERS = re.compile(r"^(?:python\d*(?:\.\d+)?|pypy\d*|node|nodejs|perl|ruby|php|deno|bun)$")
 SQL_CMDS = {"mysql", "mariadb", "mysqldump", "mariadb-dump", "mysqladmin", "mariadb-admin",
             "mysqlshow", "mariadb-show"}
 BENCH_SQL_SUBCMDS = {"mariadb", "db-console", "mysql", "postgres"}
@@ -65,6 +86,8 @@ MSG = {
              "directe ; passer par l'ORM Frappe.",
     "R-HOST": "Connexion vers {host} refusée : depuis cette instance DEV, seul "
               "deverp.arkonex.ca est autorisé (CLAUDE.md, invariant n° 1).",
+    "R-HOST-CODE": "Du code exécuté mentionne le serveur {host}, autre que deverp.arkonex.ca : "
+                   "validation humaine (connexion possible, non vérifiable).",
     "R-SITE": "Site bench « {site} » refusé : seuls deverp.arkonex.ca et les sites de test "
               "en .local sont autorisés.",
     "R-SITE-VAR": "Site bench « {site} » non vérifiable (variable non résolue) : "
@@ -87,6 +110,7 @@ class Verdicts:
 
     def __init__(self):
         self.items = []
+        self.runs_code = False    # un interpréteur (python, node, bench console…) est lancé
 
     def add(self, decision, rule, **fmt):
         self.items.append((decision, rule, MSG[rule].format(**fmt)))
@@ -99,103 +123,143 @@ class Verdicts:
 
 # ------------------------------------------------------------------------------ lecture
 
-_HEREDOC = re.compile(r"<<(-?)[ \t]*(['\"]?)([A-Za-z0-9_.-]+)\2")
+_HEREDOC = re.compile(r"<<(-?)[ \t]*(\\?)(['\"]?)([A-Za-z0-9_.-]+)\3")
 _SHELL_BEFORE = re.compile(r"(?:^|[;&|(])\s*(?:\S+=\S*\s+)*(?:(?:sudo|env|exec|timeout|nohup)"
                            r"(?:\s+\S+)*?\s+)?(?:\S*/)?(?:bash|sh|dash|zsh|ksh)\b[^;&|]*$")
 
 
+def _scan(line, stack, pending, buf):
+    """Lit une ligne avec la pile de contextes et écrit dans buf le texte à analyser.
+
+    Contextes : ["N", parenthèses, parent] texte normal ou substitution $( ... ) ;
+    ["'"] et ['"'] guillemets ; ["H"] corps de heredoc à délimiteur non protégé, où seuls
+    $( ... ) et `...` sont exécutés par bash (le reste est du texte, ignoré)."""
+    j, n = 0, len(line)
+    while j < n:
+        ch = line[j]
+        top = stack[-1]
+        kind = top[0]
+        if kind == "N":
+            if ch == "#" and (j == 0 or line[j - 1] in " \t;&|()"):
+                return
+            if ch == "\\" and j + 1 < n:
+                buf.append(line[j:j + 2])
+                j += 2
+                continue
+            if ch == "`":
+                buf.append(" ; ")
+                j += 1
+                continue
+            if ch in "'\"":
+                stack.append([ch])
+            elif line.startswith("$((", j):
+                buf.append("$((")
+                top[1] += 2
+                j += 3
+                continue
+            elif line.startswith("$(", j):
+                stack.append(["N", 0, "N"])
+                buf.append(" ; ")
+                j += 2
+                continue
+            elif ch == "(":
+                top[1] += 1
+            elif ch == ")" and top[2] is not None:
+                if top[1] == 0:
+                    stack.pop()
+                    buf.append(' ; "' if top[2] == '"' else " ; ")
+                    j += 1
+                    continue
+                top[1] -= 1
+            elif line.startswith("<<", j) and not line.startswith("<<<", j) \
+                    and (j == 0 or line[j - 1] != "<"):
+                m = _HEREDOC.match(line, j)
+                if m:
+                    if _SHELL_BEFORE.search(line[:j]):
+                        mode = "shell"                 # le corps est un script : commandes
+                    elif m.group(2) or m.group(3):
+                        mode = "literal"               # délimiteur protégé : texte pur
+                    else:
+                        mode = "expand"                # bash exécute les $( ) et ` `
+                    pending.append((m.group(4), m.group(1) == "-", mode))
+                    buf.append(" ")
+                    j = m.end()
+                    continue
+        elif kind == "'":
+            if ch == "'":
+                stack.pop()
+        elif kind == "H":
+            if ch == "\\":
+                j += 2
+                continue
+            if ch == "`":
+                end = line.find("`", j + 1)
+                end = n if end < 0 else end
+                buf.append(" ; " + line[j + 1:end] + " ; ")
+                j = end + 1
+                continue
+            if line.startswith("$(", j) and not line.startswith("$((", j):
+                stack.append(["N", 0, "H"])
+                buf.append(" ; ")
+                j += 2
+                continue
+            j += 1
+            continue                                   # texte du heredoc : ignoré
+        else:  # entre guillemets doubles
+            if ch == "\\" and j + 1 < n:
+                buf.append(line[j:j + 2])
+                j += 2
+                continue
+            if ch == "`":
+                end = line.find("`", j + 1)
+                end = n if end < 0 else end
+                buf.append('" ; ' + line[j + 1:end] + ' ; "')
+                j = end + 1
+                continue
+            if line.startswith("$(", j) and not line.startswith("$((", j):
+                stack.append(["N", 0, '"'])
+                buf.append('" ; ')
+                j += 2
+                continue
+            if ch == '"':
+                stack.pop()
+        buf.append(ch)
+        j += 1
+
+
 def preprocess(src):
-    """Retire commentaires et corps de heredoc (sauf heredoc donné à un shell), traite les
-    continuations de ligne et sort le contenu des substitutions $( ... ) et `...` de leurs
-    guillemets pour qu'il soit analysé comme une commande. Les guillemets sont suivis pour
-    ne jamais prendre un texte cité pour du code (pile de contextes : texte normal, '...',
-    "...", substitution)."""
+    """Prépare le texte de la commande pour le découpage : retire commentaires et texte des
+    heredocs, traite les continuations de ligne et sort le contenu des substitutions
+    $( ... ) et `...` de leurs guillemets pour qu'il soit analysé comme une commande.
+
+    Corps de heredoc : donné à un shell -> analysé comme des commandes ; délimiteur protégé
+    (<<'EOF', <<"EOF", <<\\EOF) -> texte pur, ignoré ; délimiteur non protégé (<<EOF) ->
+    seuls ses $( ... ) et `...` sont analysés, comme bash les exécute quel que soit le
+    programme qui reçoit le heredoc."""
     src = src.replace("\\\r\n", " ").replace("\\\n", " ")
     out = []
-    # Pile de contextes : ["N", profondeur de parenthèses, contexte parent] pour le texte
-    # normal ou une substitution $( ... ) ; ["'"] ou ['"'] pour les guillemets.
     stack = [["N", 0, None]]
-    pending = []          # heredocs en attente : (délimiteur, retrait des tabulations, garder)
+    pending = []          # heredocs en attente : (délimiteur, retrait des tabulations, mode)
     for line in src.split("\n"):
         if pending:
-            delim, strip_tabs, keep = pending[0]
+            delim, strip_tabs, mode = pending[0]
             candidate = line.lstrip("\t") if strip_tabs else line
             if candidate.strip() == delim:
                 pending.pop(0)
                 out.append("")
                 continue
-            if not keep:
+            if mode == "literal":
                 out.append("")
                 continue
+            if mode == "expand":
+                buf, local = [], [["H"]]
+                _scan(line, local, [], buf)
+                if len(local) > 1:                     # substitution non refermée
+                    buf.append(" ; ")
+                out.append("".join(buf))
+                continue
         buf = []
-        j, n = 0, len(line)
-        while j < n:
-            ch = line[j]
-            top = stack[-1]
-            if top[0] == "N":
-                if ch == "#" and (j == 0 or line[j - 1] in " \t;&|()"):
-                    break
-                if ch == "\\" and j + 1 < n:
-                    buf.append(line[j:j + 2])
-                    j += 2
-                    continue
-                if ch == "`":
-                    buf.append(" ; ")
-                    j += 1
-                    continue
-                if ch in "'\"":
-                    stack.append([ch])
-                elif line.startswith("$((", j):
-                    buf.append("$((")
-                    top[1] += 2
-                    j += 3
-                    continue
-                elif line.startswith("$(", j):
-                    stack.append(["N", 0, "N"])
-                    buf.append(" ; ")
-                    j += 2
-                    continue
-                elif ch == "(":
-                    top[1] += 1
-                elif ch == ")" and top[2] is not None:
-                    if top[1] == 0:
-                        stack.pop()
-                        buf.append(' ; "' if top[2] == '"' else " ; ")
-                        j += 1
-                        continue
-                    top[1] -= 1
-                elif line.startswith("<<", j) and not line.startswith("<<<", j) \
-                        and (j == 0 or line[j - 1] != "<"):
-                    m = _HEREDOC.match(line, j)
-                    if m:
-                        keep = bool(_SHELL_BEFORE.search(line[:j]))
-                        pending.append((m.group(3), m.group(1) == "-", keep))
-                        buf.append(" ")
-                        j = m.end()
-                        continue
-            elif top[0] == "'":
-                if ch == "'":
-                    stack.pop()
-            else:  # entre guillemets doubles
-                if ch == "\\" and j + 1 < n:
-                    buf.append(line[j:j + 2])
-                    j += 2
-                    continue
-                if ch == "`":
-                    end = line.find("`", j + 1)
-                    end = n if end < 0 else end
-                    buf.append('" ; ' + line[j + 1:end] + ' ; "')
-                    j = end + 1
-                    continue
-                if line.startswith("$(", j) and not line.startswith("$((", j):
-                    stack.append(["N", 0, '"'])
-                    buf.append('" ; ')
-                    j += 2
-                    continue
-                if ch == '"':
-                    stack.pop()
-            buf.append(ch)
-            j += 1
+        _scan(line, stack, pending, buf)
         out.append("".join(buf))
     return "\n".join(out)
 
@@ -401,6 +465,8 @@ def rule_bench(args, ctx, v):
         else:
             v.add("deny", "R-SITE", site=expanded)
     sub = pos[0] if pos else None
+    if sub in ("console", "execute", "run-tests"):
+        v.runs_code = True
     if sub in BENCH_SQL_SUBCMDS:
         v.add("deny", "R-SQL")
     elif sub == "execute" and len(pos) > 1 and SQL_EXECUTE_TARGETS.match(pos[1]):
@@ -415,12 +481,25 @@ def rule_bench(args, ctx, v):
         v.add("ask", "R-DROP-SITE")
 
 
-def rule_network(args, v):
-    for a in args:
-        for m in ARKONEX_HOST.finditer(a):
-            host = m.group(1).lower()
-            if host != DEV_HOST:
-                v.add("deny", "R-HOST", host=host)
+def rule_network(word, args, v):
+    """Refuse une connexion vers un hôte arkonex.ca autre que DEV. Seules les destinations
+    comptent : les valeurs des options de données (--data, -H, -F…) sont ignorées."""
+    skip = DATA_OPTS.get(word, set())
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a in skip:
+            i += 2
+            continue
+        if a.startswith("--") and "=" in a:
+            opt, a = a.split("=", 1)
+            if opt in skip:
+                i += 1
+                continue
+        m = HOST_AT_START.match(a)
+        if m and m.group(1).lower() != DEV_HOST:
+            v.add("deny", "R-HOST", host=m.group(1).lower())
+        i += 1
 
 
 _SUDO_WITH_VALUE = {"-u", "-g", "-p", "-C", "-D", "-h", "-r", "-t", "-T", "-U", "--user",
@@ -483,9 +562,12 @@ def analyze_simple(cmd, ctx, v, depth):
     if word in SQL_CMDS and not (args and all(a in INFO_FLAGS for a in args)):
         v.add("deny", "R-SQL")
     if word in NET_CMDS:
-        rule_network(args, v)
+        rule_network(word, args, v)
     if word == "git":
+        rule_network(word, args, v)     # URL de dépôt : clone, fetch, push, remote add…
         rule_git(args, ctx, v)
+    if INTERPRETERS.match(word):
+        v.runs_code = True
     if word == "bench":
         rule_bench(args, ctx, v)
     if word in SHELLS:
@@ -511,6 +593,12 @@ def evaluate(command, cwd=None):
     """Renvoie None (rien à signaler) ou (décision, règle, message)."""
     v = Verdicts()
     certain = analyze(command, Context(cwd), v)
+    if v.runs_code:
+        for m in CODE_HOST.finditer(command):
+            host = (m.group(1) or m.group(3)).lower()
+            if host != DEV_HOST:
+                v.add("ask", "R-HOST-CODE", host=host)
+                break
     worst = v.worst()
     if worst and not certain and worst[0] == "deny":
         return ("ask", worst[1], worst[2] + " (découpage incertain de la commande : "

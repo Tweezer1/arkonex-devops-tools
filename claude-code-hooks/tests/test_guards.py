@@ -56,6 +56,18 @@ CASES = [
     ("test -d sites/desk.arkonex.ca && echo PRESENT || echo ABSENT", ALLOW),
     ("echo '$(mysql -e 1)'", ALLOW),
     ("cat > /tmp/x <<'EOF'\nsudo rm -rf /\nbench drop-site x\nmysql -e 1\nEOF\necho ok", ALLOW),
+    ("cat > /tmp/x <<\\EOF\n$(mysql -e 1)\nEOF", ALLOW),
+    # Heredoc à délimiteur non protégé : le texte est ignoré, pas les $( ) ni les ` `
+    ("cat > /tmp/x <<EOF\nPrix : $PRIX \"cité\" sudo rm -rf / ; mysql -e 1\nEOF", ALLOW),
+    # RELECTURE : données envoyées au serveur DEV citant un autre hôte (pas une connexion)
+    ("curl -s https://deverp.arkonex.ca/api/method/x --data-urlencode 'value=jamais desk.arkonex.ca'",
+     ALLOW),
+    ("curl -s https://deverp.arkonex.ca/api/resource/Note --data '{\"content\": \"voir old.arkonex.ca\"}'",
+     ALLOW),
+    ("curl -e https://desk.arkonex.ca/page -o desk.arkonex.ca.html https://deverp.arkonex.ca/api",
+     ALLOW),
+    ("python3 -c \"print('jamais desk.arkonex.ca')\"", ALLOW),
+    ("bench --site DEVERP.ARKONEX.CA migrate", ALLOW),
     # REJEU : corps de PR rédigé par heredoc dans une substitution entre guillemets
     ("gh pr create --base main --head lot/x --title t --body \"$(cat <<'EOF'\n"
      "Aucun `bench migrate`, aucun `sudo systemctl restart`.\nEOF\n)\"", ALLOW),
@@ -80,11 +92,25 @@ CASES = [
     ("X=$(mysql -e 1); echo $X", DENY),
     ("echo `mysql -e 1`", DENY),
     ("bash <<'EOF'\nmysql -e 1\nEOF", DENY),
+    # RELECTURE : heredoc non protégé donné à un programme quelconque — bash exécute $( )
+    ("cat > /tmp/out.txt <<EOF\n$(mysql -u root -e 'select 1')\nEOF", DENY),
+    ("cat > /tmp/out.txt <<EOF\n$(bench update)\nEOF", DENY),
+    ("cat > /tmp/out.md <<EOF\nRésultat : `bench build`\nEOF", DENY),
+    ("tee /tmp/out.txt <<EOF\n$(sudo reboot)\nEOF", ASK),
     ("xargs -n1 mysql -e < requetes.txt", DENY),
     # --- Serveur Arkonex autre que DEV : refus
     ("curl https://desk.arkonex.ca/api/method/ping", DENY),
     ("ssh frappe@desk.arkonex.ca ls", DENY),
     ("rsync -a ./x autre.arkonex.ca:/tmp/", DENY),
+    ("curl --url=https://desk.arkonex.ca/x", DENY),
+    # RELECTURE : git vers un autre serveur Arkonex
+    ("git push https://desk.arkonex.ca/repo.git lot/x", DENY),
+    ("git remote add autre ssh://frappe@desk.arkonex.ca/repo.git", DENY),
+    ("git clone frappe@desk.arkonex.ca:repo.git", DENY),
+    # RELECTURE : code (python, heredoc donné à python) visant un autre serveur Arkonex
+    ("python3 -c \"import urllib.request; urllib.request.urlopen('http://desk.arkonex.ca/x')\"", ASK),
+    ("python3 -c \"import smtplib; smtplib.SMTP('mail.arkonex.ca')\"", ASK),
+    ("python3 - <<'EOF'\nimport requests\nrequests.get('https://desk.arkonex.ca/api')\nEOF", ASK),
     # --- Sites bench non autorisés : refus
     ("bench --site all migrate", DENY),
     ("bench --site prod.example.com migrate", DENY),

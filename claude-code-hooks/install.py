@@ -94,7 +94,12 @@ def install(bench_root, apply):
     claude = os.path.join(bench_root, ".claude")
     hooks_dir = os.path.join(claude, "hooks")
     settings_path = os.path.join(claude, "settings.json")
-    actions, before, after = plan_install(bench_root)
+    try:
+        actions, before, after = plan_install(bench_root)
+    except ValueError as exc:
+        print("ARRÊT : {} n'est pas un JSON valide ({}). Rien n'a été modifié ; corriger ou "
+              "restaurer ce fichier avant d'installer.".format(settings_path, exc))
+        return 1
     print("Plan d'installation dans {} :".format(claude))
     for a in actions:
         print("  - {} : {} ({})".format(*a))

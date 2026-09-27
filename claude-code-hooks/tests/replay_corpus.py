@@ -9,6 +9,12 @@ des données de travail). Rien n'est exécuté : seules les décisions du garde 
 
 Usage :
   replay_corpus.py [--transcripts DIR] [--exclude SESSION_ID ...] [--out FICHIER.json]
+                   [--assume-branch NOM]
+
+Limite : pour un « git push » sans destination explicite, le garde lit la branche courante
+du dépôt AU MOMENT DU REJEU, pas celle de l'époque. Les copies ayant changé de branche
+depuis, ce cas n'est pas reconstitué fidèlement ; --assume-branch lot/x le neutralise
+(toute branche courante est alors supposée être une branche de lot).
 """
 
 import argparse
@@ -52,7 +58,10 @@ def main():
     ap.add_argument("--transcripts", default=DEFAULT_DIR)
     ap.add_argument("--exclude", nargs="*", default=[])
     ap.add_argument("--out")
+    ap.add_argument("--assume-branch")
     opts = ap.parse_args()
+    if opts.assume_branch:
+        guard_bash.current_branch = lambda directory: opts.assume_branch
 
     commands = collections.OrderedDict()   # commande -> (occurrences, cwd, horodatage)
     paths = collections.Counter()

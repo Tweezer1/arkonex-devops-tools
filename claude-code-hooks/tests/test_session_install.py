@@ -118,6 +118,16 @@ class Install(Bench):
                  if not k.startswith("hooks-backup/")}
         self.assertEqual(after, before)
 
+    def test_invalid_settings_stops_without_writing(self):
+        with open(os.path.join(self.claude, "settings.json"), "w") as fh:
+            fh.write("{ pas du json")
+        before = tree_state(self.claude)
+        r = self.install("--apply")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("ARRÊT", r.stdout)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertEqual(tree_state(self.claude), before)
+
     def test_post_install_check_detects_a_broken_guard(self):
         self.assertEqual(self.install("--apply").returncode, 0)
         os.chmod(os.path.join(self.claude, "hooks", "guard_paths.py"), 0o644)
