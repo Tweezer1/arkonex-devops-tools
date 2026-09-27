@@ -1,0 +1,263 @@
+{
+ "fields": {
+  "Activity Log.user->User": {
+   "links": [
+    [
+     "Activity Log",
+     "crku9eih1n",
+     "admin"
+    ],
+    [
+     "Activity Log",
+     "cvf09f4r84",
+     "admin"
+    ],
+    [
+     "Activity Log",
+     "d22lgvri2j",
+     "admin"
+    ],
+    [
+     "Activity Log",
+     "d3kh7ub2s2",
+     "admin"
+    ],
+    [
+     "Activity Log",
+     "d5g4p4dvj4",
+     "admin"
+    ],
+    [
+     "Activity Log",
+     "r5sa20aq3o",
+     "not-a-real-user@example.invalid"
+    ]
+   ],
+   "reason": "Bruit natif et essais : journaux d'activité au nom de comptes inexistants ('admin', 5 ; un compte de test @example.invalid, 1). Préexistant au 2026-09-27 (DIAG #173 §2)."
+  },
+  "Contact.user->User": {
+   "links": [
+    [
+     "Contact",
+     "Lim",
+     "lim-f601a8@example.com"
+    ],
+    [
+     "Contact",
+     "UP Exp2",
+     "up2-962f05@example.com"
+    ]
+   ],
+   "reason": "Contacts rattachés à des comptes de test @example.com supprimés. Préexistant au 2026-09-27 (DIAG #173 §2)."
+  },
+  "Has Role.role->Role": {
+   "links": [
+    [
+     "Page",
+     "visual-plant-floor",
+     "Operator"
+    ],
+    [
+     "Report",
+     "Ticket-Search Analysis",
+     "External Agent"
+    ],
+    [
+     "Report",
+     "Ticket-Search Analysis",
+     "Supported Site User"
+    ]
+   ],
+   "reason": "Bruit natif : rapports et pages standard qui citent des rôles d'applications non installées. Préexistant au 2026-09-27."
+  },
+  "Report.letter_head->Letter Head": {
+   "links": [
+    [
+     "Report",
+     "Downtime Analysis",
+     "Gadgets International"
+    ],
+    [
+     "Report",
+     "Employee Exits",
+     "Test"
+    ],
+    [
+     "Report",
+     "FIFO Queue vs Qty After Transaction Comparison",
+     "abc"
+    ],
+    [
+     "Report",
+     "First Response Time for Issues",
+     "Test 2"
+    ],
+    [
+     "Report",
+     "First Response Time for Opportunity",
+     "Test 2"
+    ],
+    [
+     "Report",
+     "Leave Ledger",
+     "Frappe"
+    ],
+    [
+     "Report",
+     "Quality Inspection Summary",
+     "Gadgets International"
+    ],
+    [
+     "Report",
+     "Timesheet Billing Summary",
+     "ALYF GmbH"
+    ],
+    [
+     "Report",
+     "Voucher-wise Balance",
+     "LetterHead"
+    ],
+    [
+     "Report",
+     "Work Order Consumed Materials",
+     "Gadgets International"
+    ],
+    [
+     "Report",
+     "Work Order Summary",
+     "Gadgets International"
+    ]
+   ],
+   "reason": "Bruit natif : rapports standard des applications livrés avec un en-tête absent de DEV. Préexistant au 2026-09-27."
+  },
+  "Sales Invoice Item.sales_order->Sales Order": {
+   "links": [
+    [
+     "Sales Invoice",
+     "ACC-SINV-2026-00001",
+     "SAL-ORD-2026-00001"
+    ],
+    [
+     "Sales Invoice",
+     "ACC-SINV-2026-00002",
+     "SAL-ORD-2026-00001"
+    ],
+    [
+     "Sales Invoice",
+     "ACC-SINV-2026-00003",
+     "SAL-ORD-2026-00001"
+    ]
+   ],
+   "reason": "Factures annulées du client de test gardées comme preuve du canary OPEN-130 (ACC-SINV-2026-00001, 00002 du 15/09 ; 00003 du 16/09). Commande effacée de force ; décision du propriétaire du 2026-09-27 (option A, #173)."
+  },
+  "UOM Conversion Factor.to_uom->UOM": {
+   "links": [
+    [
+     "UOM Conversion Factor",
+     "MAT-UOM-CNV-00031",
+     "Medio Metro"
+    ],
+    [
+     "UOM Conversion Factor",
+     "MAT-UOM-CNV-00034",
+     "Manzana"
+    ],
+    [
+     "UOM Conversion Factor",
+     "MAT-UOM-CNV-00095",
+     "Peck"
+    ]
+   ],
+   "reason": "Import sélectif des données de référence : conversions vers des unités non importées. Préexistant au 2026-09-27."
+  },
+  "Workflow Document State.state->Workflow State": {
+   "links": [
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Inactive"
+    ],
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Locked"
+    ]
+   ],
+   "reason": "Workflows Arkonex dont les maîtres Workflow State sont absents de DEV : découverte D-3 de #173, à examiner dans un lot séparé."
+  },
+  "Workflow Transition.action->Workflow Action Master": {
+   "links": [
+    [
+     "Workflow",
+     "Service Composition Contextual Override Approval",
+     "Apply"
+    ],
+    [
+     "Workflow",
+     "Service Composition Contextual Override Approval",
+     "Rollback"
+    ],
+    [
+     "Workflow",
+     "Service Composition Contextual Override Approval",
+     "Send back"
+    ],
+    [
+     "Workflow",
+     "Service Composition Contextual Override Approval",
+     "Submit for review"
+    ],
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Deactivate"
+    ],
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Lock"
+    ],
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Submit for review"
+    ],
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Supersede"
+    ]
+   ],
+   "reason": "Workflows Arkonex dont les maîtres Workflow Action Master sont absents de DEV : découverte D-3 de #173, à examiner dans un lot séparé."
+  },
+  "Workflow Transition.next_state->Workflow State": {
+   "links": [
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Inactive"
+    ],
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Locked"
+    ]
+   ],
+   "reason": "Workflows Arkonex dont les maîtres Workflow State sont absents de DEV : découverte D-3 de #173, à examiner dans un lot séparé."
+  },
+  "Workflow Transition.state->Workflow State": {
+   "links": [
+    [
+     "Workflow",
+     "Service Formula Registry Approval",
+     "Locked"
+    ]
+   ],
+   "reason": "Workflows Arkonex dont les maîtres Workflow State sont absents de DEV : découverte D-3 de #173, à examiner dans un lot séparé."
+  }
+ },
+ "generated_at": "2026-09-27T11:35:42.611082",
+ "lot": "OPEN-164 (#173)",
+ "schema": "dev-link-check/1",
+ "site": "deverp.arkonex.ca"
+}
