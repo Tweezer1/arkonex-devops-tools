@@ -5,6 +5,8 @@ Outils transversaux Arkonex pour DevOps, gouvernance IA, validation de paquets d
 ## Portée initiale
 
 - `open83/` : outils liés au 83-kb-runbook — Contrat de contexte, ownership runtime et reprise IA.
+- `claude-browser-qa/` : infrastructure Browser QA reproductible (OPEN-125).
+- `claude-code-hooks/` : garde-fous du harnais Claude Code de l'instance DEV (OPEN-161).
 
 ## Règles
 

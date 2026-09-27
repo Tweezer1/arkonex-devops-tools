@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {"type": "command", "command": "{{BENCH_ROOT}}/.claude/hooks/guard_bash.py", "timeout": 15}
+        ]
+      },
+      {
+        "matcher": "Write|Edit|NotebookEdit",
+        "hooks": [
+          {"type": "command", "command": "{{BENCH_ROOT}}/.claude/hooks/guard_paths.py", "timeout": 15}
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "{{BENCH_ROOT}}/.claude/hooks/session_start.py", "timeout": 30}
+        ]
+      }
+    ]
+  }
+}
