@@ -76,6 +76,23 @@ base).
 En cas de problème, un message s'affiche à la personne et l'agent en est informé. Sinon,
 une seule ligne de contexte positive est donnée à l'agent.
 
+**Rappel de suivi GitHub** (`OPEN-169`,
+[Issue #189](https://github.com/Tweezer1/arkonex-ops-docs/issues/189)), indépendant des
+deux vérifications ci-dessus. Une requête GraphQL en lecture (`gh api graphql`) relève :
+
+- les PR ouvertes des dépôts `Tweezer1`, avec leur ancienneté ;
+- les Issues `open-lot` ouvertes qu'une PR fusionnée depuis 30 jours référence par
+  `Refs`, `Fixes` ou `Closes` (`#N` ou `Tweezer1/arkonex-ops-docs#N`), lorsque cette fusion
+  est postérieure à la dernière mise à jour de l'Issue. Les dépôts de code n'ont aucune
+  Issue propre : un `#N` y désigne une Issue de `arkonex-ops-docs`. Les simples liens et
+  les titres sont des mentions ; ils ne sont pas retenus.
+
+Le résultat va **à l'agent seulement** (contexte), jamais à l'écran, qui reste réservé aux
+alertes : l'agent le signale au propriétaire. Durée bornée à 8 s (mesurée : environ 2 s
+avec les deux vérifications) ; en cas d'échec (réseau, `gh`, délai, réponse illisible), une
+ligne « indisponible », sans jamais bloquer la session. Variables utiles aux tests :
+`ARKONEX_GH` (binaire `gh`), `ARKONEX_FOLLOWUP=off`, `ARKONEX_FOLLOWUP_TIMEOUT`.
+
 ## Installer, vérifier, revenir en arrière
 
 ```bash
@@ -109,6 +126,10 @@ Retour arrière, restauration à l'identique (empreintes vérifiées) :
 - `test_session_install.py` : contrôle de démarrage et installation sur un bench et un
   dépôt `docs` fictifs, dont la reproduction de la panne d'origine et un retour arrière
   vérifié octet pour octet.
+- `test_followup.py` : rappel de suivi GitHub avec un faux `gh` (aucun appel réseau), dont
+  la reconstitution du cas OPEN-124 (fusion deux minutes après la dernière mise à jour du
+  dossier), une mention seule non retenue, la pagination, l'échec, le délai dépassé et une
+  réponse illisible. Cinq ruptures volontaires du code, toutes détectées.
 - `replay_corpus.py` : rejoue les commandes réellement exécutées par les sessions (lecture
   des transcriptions locales, rien n'est exécuté) ; le détail va dans un fichier hors du
   dépôt (`--out`), les commandes pouvant contenir des données de travail.
