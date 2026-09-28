@@ -38,9 +38,23 @@ bash dev-link-check/run.sh deverp.arkonex.ca
 Options : `run.sh <site> [baseline] [report]` — référence et rapport ont des valeurs
 par défaut (`dev-link-check/baseline.json`, aucun rapport écrit si non précisé).
 
+- **Chemins** : un chemin relatif (référence, rapport, `LINK_CHECK_WRITE_BASELINE`) se
+  lit depuis le dossier d'où `run.sh` est lancé. `run.sh` le rend absolu avant de
+  passer dans le bench, dont la console tourne dans `sites/` (`OPEN-168`,
+  [Issue #186](https://github.com/Tweezer1/arkonex-ops-docs/issues/186) : un chemin
+  relatif y désignait un autre fichier, d'où un faux FAIL le 28/09/2026).
+- **Référence introuvable** (donnée en option ou par défaut) : `LINK_CHECK_STATUS=ERROR`,
+  code de sortie 2, avec le chemin cherché ; le site n'est pas parcouru. Elle n'est
+  jamais lue comme une référence vide, qui rendrait « nouveaux » tous les liens connus.
+
+```bash
+bash dev-link-check/run.sh deverp.arkonex.ca dev-link-check/baseline.json /tmp/rapport.json
+```
+
 ## Lire le résultat
 
 ```text
+LINK_CHECK_BASELINE_LOADED=<chemin absolu> (<n> entrée(s))   (référence réellement comparée)
 LINK_CHECK_STATUS=PASS|FAIL
 LINK_CHECK_SUMMARY=<phrase résumant les compteurs>
 LINK_CHECK_COUNTERS={"fields_total": ..., "broken_new": ..., ...}
@@ -53,9 +67,12 @@ LINK_CHECK_RESOLVED <clé>                                        (une ligne par
   entre-temps) — c'est une amélioration, elle n'affecte jamais le statut.
 - **FAIL** : au moins une ligne `LINK_CHECK_NEW` — un lien cassé nouveau, absent de la
   référence. Code de sortie 1.
-- Code de sortie 2 : erreur (`LINK_CHECK_STATUS=ERROR` avec `LINK_CHECK_ERROR=...`) ou
-  statut introuvable dans la sortie de `bench console` — les 40 dernières lignes de
-  sortie sont alors affichées pour diagnostic.
+- Code de sortie 2 : erreur (`LINK_CHECK_STATUS=ERROR` avec `LINK_CHECK_ERROR=...`,
+  par exemple `référence introuvable : <chemin> (LINK_CHECK_BASELINE)`) ou statut
+  introuvable dans la sortie de `bench console` — les 40 dernières lignes de sortie
+  sont alors affichées pour diagnostic.
+- Vérifier la ligne `LINK_CHECK_BASELINE_LOADED` : c'est la référence réellement
+  comparée, avec son nombre d'entrées (41 pour la référence initiale du 27/09).
 
 ## Règle de la référence (`baseline.json`)
 

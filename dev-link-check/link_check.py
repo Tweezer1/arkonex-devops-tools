@@ -11,8 +11,11 @@ Variables d'environnement :
   LINK_CHECK_DIR (obligatoire)        : dossier de l'outil (ajouté à sys.path pour
                                         importer link_check_core).
   LINK_CHECK_BASELINE (optionnel)     : chemin de la référence à comparer (défaut
-                                        "<LINK_CHECK_DIR>/baseline.json"). Absente du
-                                        disque -> référence vide (aucun lien connu).
+                                        "<LINK_CHECK_DIR>/baseline.json"). Introuvable
+                                        (explicite ou par défaut) -> LINK_CHECK_STATUS=
+                                        ERROR, sans parcourir le site (OPEN-168). Un
+                                        chemin relatif se lit depuis le dossier de la
+                                        console (sites/) : run.sh le rend absolu avant.
   LINK_CHECK_REPORT (optionnel)       : chemin où écrire le rapport JSON.
   LINK_CHECK_WRITE_BASELINE (option.) : chemin où écrire une référence fraîche,
                                         construite depuis les entrées trouvées.
@@ -45,23 +48,27 @@ def main():
         sys.path.insert(0, link_check_dir)
     import link_check_core as core
 
-    baseline_path = os.environ.get("LINK_CHECK_BASELINE") or os.path.join(
-        link_check_dir, "baseline.json"
+    explicit_baseline = os.environ.get("LINK_CHECK_BASELINE")
+    baseline_path = os.path.abspath(
+        explicit_baseline or os.path.join(link_check_dir, "baseline.json")
     )
     report_path = os.environ.get("LINK_CHECK_REPORT")
     write_baseline_path = os.environ.get("LINK_CHECK_WRITE_BASELINE")
     lot = os.environ.get("LINK_CHECK_LOT", "")
 
-    if os.path.exists(baseline_path):
-        baseline = core.load_json(baseline_path)
-    else:
-        baseline = {
-            "schema": "dev-link-check/1",
-            "site": "",
-            "generated_at": "",
-            "lot": "",
-            "fields": {},
-        }
+    # Référence introuvable = erreur, avant tout parcours du site. La lire comme vide
+    # rendrait « nouveaux » tous les liens connus (faux FAIL du 28/09, OPEN-168).
+    if not os.path.isfile(baseline_path):
+        print("LINK_CHECK_STATUS=ERROR")
+        print("LINK_CHECK_ERROR=référence introuvable : %s (%s)" % (
+            baseline_path,
+            "LINK_CHECK_BASELINE" if explicit_baseline else "référence par défaut",
+        ))
+        return
+    baseline = core.load_json(baseline_path)
+    print("LINK_CHECK_BASELINE_LOADED=%s (%d entrée(s))" % (
+        baseline_path, len(core.baseline_keys(baseline)),
+    ))
 
     # Cache des meta par DocType : chaque champ Link visité relit potentiellement la
     # même meta de parent ou de cible, autant ne la charger qu'une fois.
