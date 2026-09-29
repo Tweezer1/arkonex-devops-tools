@@ -11,12 +11,14 @@ du bench. Sans --apply, n'écrit rien : affiche seulement ce qui serait fait.
 Installation :
   1. sauvegarde de .claude/settings.json et de tout .claude/hooks/ dans
      .claude/hooks-backup/<horodatage UTC>/ (avec un manifeste sha256) ;
-  2. copie de guard_bash.py, guard_paths.py et session_start.py dans .claude/hooks/
-     (mode 0755), écriture atomique ;
-  3. les anciens scripts block-forbidden-*.sh passent dans la sauvegarde ;
-  4. remplacement de la seule section "hooks" de .claude/settings.json par
+  2. copie de guard_bash.py, guard_paths.py, session_start.py et reprendre_lot.py dans
+     .claude/hooks/ (mode 0755), écriture atomique ;
+  3. copie du skill /reprendre-lot (OPEN-170) dans .claude/skills/reprendre-lot/SKILL.md,
+     chemins absolus ; un skill existant de même nom est d'abord sauvegardé ;
+  4. les anciens scripts block-forbidden-*.sh passent dans la sauvegarde ;
+  5. remplacement de la seule section "hooks" de .claude/settings.json par
      settings.hooks.json (chemins absolus) ; les autres réglages sont conservés ;
-  5. contrôle après installation : chaque garde-fou configuré existe, est exécutable et
+  6. contrôle après installation : chaque garde-fou configuré existe, est exécutable et
      refuse réellement un cas connu (même contrôle que session_start.py).
 
 Effet immédiat : Claude Code relit ses réglages en cours de session ; les sessions
@@ -33,8 +35,18 @@ import subprocess
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPTS = ("guard_bash.py", "guard_paths.py", "session_start.py")
+SCRIPTS = ("guard_bash.py", "guard_paths.py", "session_start.py", "reprendre_lot.py")
+SKILLS = ("reprendre-lot",)   # skills/<nom>/SKILL.md, {{BENCH_ROOT}} remplacé
 LEGACY = ("block-forbidden-commands.sh", "block-forbidden-paths.sh")
+
+
+def skill_path(claude, name):
+    return os.path.join(claude, "skills", name, "SKILL.md")
+
+
+def render_skill(bench_root, name):
+    with open(os.path.join(HERE, "skills", name, "SKILL.md"), encoding="utf-8") as fh:
+        return fh.read().replace("{{BENCH_ROOT}}", bench_root.rstrip("/")).encode("utf-8")
 
 
 def sha256(path):
@@ -82,6 +94,14 @@ def plan_install(bench_root):
         state = "nouveau" if not os.path.exists(dst) else (
             "identique" if sha256(dst) == sha256(os.path.join(HERE, name)) else "modifié")
         actions.append(("copie", name, state))
+    for name in SKILLS:
+        dst = skill_path(claude, name)
+        if not os.path.exists(dst):
+            state = "nouveau"
+        else:
+            with open(dst, "rb") as fh:
+                state = "identique" if fh.read() == render_skill(bench_root, name) else "modifié"
+        actions.append(("skill", name, state))
     for name in LEGACY:
         if os.path.exists(os.path.join(hooks_dir, name)):
             actions.append(("retrait vers la sauvegarde", name, "ancien script"))
@@ -113,7 +133,7 @@ def install(bench_root, apply):
     stamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     backup = os.path.join(claude, "hooks-backup", stamp)
     os.makedirs(os.path.join(backup, "hooks"))
-    manifest = {"created_utc": stamp, "settings": None, "hooks": {}}
+    manifest = {"created_utc": stamp, "settings": None, "hooks": {}, "skills": {}}
     if os.path.exists(settings_path):
         shutil.copy2(settings_path, os.path.join(backup, "settings.json"))
         manifest["settings"] = sha256(settings_path)
@@ -124,6 +144,14 @@ def install(bench_root, apply):
             shutil.copy2(src, os.path.join(backup, "hooks", name))
             manifest["hooks"][name] = {"sha256": sha256(src),
                                        "mode": oct(os.stat(src).st_mode & 0o777)}
+    for name in SKILLS:
+        src = skill_path(claude, name)
+        if os.path.isfile(src):
+            dst = os.path.join(backup, "skills", name, "SKILL.md")
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(src, dst)
+            manifest["skills"][name] = {"sha256": sha256(src),
+                                        "mode": oct(os.stat(src).st_mode & 0o777)}
     with open(os.path.join(backup, "manifest.json"), "w", encoding="utf-8") as fh:
         json.dump(manifest, fh, ensure_ascii=False, indent=2)
     print("Sauvegarde : {}".format(backup))
@@ -131,6 +159,10 @@ def install(bench_root, apply):
     for name in SCRIPTS:
         with open(os.path.join(HERE, name), "rb") as fh:
             atomic_write(os.path.join(hooks_dir, name), fh.read(), 0o755)
+    for name in SKILLS:
+        dst = skill_path(claude, name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        atomic_write(dst, render_skill(bench_root, name), 0o644)
     for name in LEGACY:
         path = os.path.join(hooks_dir, name)
         if os.path.exists(path):
@@ -160,13 +192,34 @@ def rollback(bench_root, backup, apply):
         manifest = json.load(fh)
     current = sorted(os.listdir(hooks_dir)) if os.path.isdir(hooks_dir) else []
     to_remove = [n for n in current if n not in manifest["hooks"]]
+    # Sauvegardes antérieures à OPEN-170 : pas de clé « skills », donc aucun skill à garder.
+    saved_skills = manifest.get("skills", {})
+    skills_remove = [n for n in SKILLS
+                     if n not in saved_skills and os.path.exists(skill_path(claude, n))]
     print("Retour arrière depuis {} :".format(backup))
     print("  - settings.json : {}".format("restauré" if manifest["settings"] else "supprimé"))
     print("  - hooks restaurés : {}".format(", ".join(sorted(manifest["hooks"])) or "aucun"))
     print("  - hooks retirés : {}".format(", ".join(to_remove) or "aucun"))
+    print("  - skills restaurés : {}".format(", ".join(sorted(saved_skills)) or "aucun"))
+    print("  - skills retirés : {}".format(", ".join(skills_remove) or "aucun"))
     if not apply:
         print("Aucune écriture (ajouter --apply pour restaurer).")
         return 0
+    for name, meta in saved_skills.items():
+        dst = skill_path(claude, name)
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        with open(os.path.join(backup, "skills", name, "SKILL.md"), "rb") as fh:
+            atomic_write(dst, fh.read(), int(meta["mode"], 8))
+        if sha256(dst) != meta["sha256"]:
+            print("ÉCHEC : empreinte différente après restauration du skill {}".format(name))
+            return 1
+    for name in skills_remove:
+        os.remove(skill_path(claude, name))
+        for directory in (os.path.join(claude, "skills", name), os.path.join(claude, "skills")):
+            try:
+                os.rmdir(directory)
+            except OSError:
+                pass                 # dossier non vide : laissé en place
     for name, meta in manifest["hooks"].items():
         with open(os.path.join(backup, "hooks", name), "rb") as fh:
             atomic_write(os.path.join(hooks_dir, name), fh.read(), int(meta["mode"], 8))

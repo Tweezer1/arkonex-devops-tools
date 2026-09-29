@@ -21,6 +21,16 @@ ouvertes, et Issues open-lot qu'une PR fusionnée référence (Refs/Fixes/Closes
 dernière mise à jour. Une seule requête GraphQL en lecture (gh), durée bornée ; en cas
 d'échec, une ligne « indisponible ». Contexte pour l'agent seulement, jamais systemMessage
 (choix du propriétaire, 2026-09-28) : l'agent le signale au propriétaire.
+
+Suivi des décisions (OPEN-170, Issue #195), même principe, requête distincte : lots
+open-lot actifs depuis 7 jours dont le résumé est plus ancien qu'une décision marquée
+[DÉCIDÉ-MÉTIER], et lignes « Reçu de #N … à intégrer » de leur tableau des décisions
+(docs/GOUVERNANCE-GITHUB-ISSUES.md §12).
+
+Mode --compact (entrée SessionStart filtrée sur « compact ») : après une compaction, réinjecte
+la fiche de reprise du lot déclaré par /reprendre-lot pour cette session (reprendre_lot.py,
+RB-83 §4.10.5), avec un avertissement si l'Issue a changé depuis. Aucune autre vérification
+dans ce mode : l'entrée générale continue de les faire.
 """
 
 import datetime
@@ -158,11 +168,11 @@ def gh_binary():
             or os.path.expanduser("~/.local/bin/gh"))
 
 
-def gh_graphql(variables, deadline):
+def gh_graphql(variables, deadline, query=FOLLOWUP_QUERY):
     remaining = deadline - time.monotonic()
     if remaining <= 0:
         raise TimeoutError
-    cmd = [gh_binary(), "api", "graphql", "-f", "query=" + FOLLOWUP_QUERY]
+    cmd = [gh_binary(), "api", "graphql", "-f", "query=" + query]
     for key, value in variables.items():
         cmd += ["-f", "{}={}".format(key, value)]
     env = dict(os.environ, GH_PROMPT_DISABLED="1", GH_NO_UPDATE_NOTIFIER="1")
@@ -243,7 +253,117 @@ def followup_text():
             "dossiers concernés (CLAUDE.md, « Fusion accompagnée », point 4).")
 
 
+TRACE = os.environ.get("ARKONEX_TRACE", "on")
+TRACE_DAYS = 7
+TRACE_MAX_ITEMS = 8
+MARKER = "DÉCIDÉ-MÉTIER"
+RECU = re.compile(r"(?m)^\|.*Reçu de #\d+.*\|\s*à intégrer\s*\|\s*$")
+TRACE_QUERY = """# trace-open170
+query($since: DateTime!) {
+  repository(owner: "%s", name: "%s") {
+    issues(states: OPEN, labels: ["open-lot"], first: 100, filterBy: {since: $since}) {
+      nodes { number createdAt lastEditedAt body
+              comments(last: 20) { nodes { createdAt body } } }
+    }
+  }
+}
+""" % (OWNER, DOCS_REPO)
+
+
+def trace_items(now):
+    """Lecture seule. Renvoie ({Issue: (décisions après le résumé, dernière)}, {Issue: reçus})."""
+    deadline = time.monotonic() + float(os.environ.get("ARKONEX_TRACE_TIMEOUT", "6"))
+    since = (now - datetime.timedelta(days=TRACE_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    data = gh_graphql({"since": since}, deadline, TRACE_QUERY)
+    late, received = {}, {}
+    for lot in data["repository"]["issues"]["nodes"]:
+        body_time = lot.get("lastEditedAt") or lot.get("createdAt") or ""
+        after = [c["createdAt"] for c in lot["comments"]["nodes"]
+                 if c["createdAt"] > body_time
+                 and MARKER in next((l for l in (c.get("body") or "").splitlines()
+                                     if l.strip()), "")]
+        if after:
+            late[lot["number"]] = (len(after), max(after))
+        count = len(RECU.findall(lot.get("body") or ""))
+        if count:
+            received[lot["number"]] = count
+    return late, received
+
+
+def trace_text():
+    if TRACE == "off":
+        return ""
+    now = datetime.datetime.now(datetime.timezone.utc)
+    try:
+        late, received = trace_items(now)
+    except TimeoutError:
+        return "Suivi des décisions (OPEN-170) indisponible (délai dépassé)."
+    except Exception as exc:  # jamais bloquant
+        return "Suivi des décisions (OPEN-170) indisponible ({}).".format(
+            str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__)
+    if not late and not received:
+        return ("Suivi des décisions (OPEN-170) : aucun résumé en retard ni élément reçu à "
+                "intégrer (lots actifs depuis {} jours).".format(TRACE_DAYS))
+
+    def cap(items):
+        extra = len(items) - TRACE_MAX_ITEMS
+        return items[:TRACE_MAX_ITEMS] + (["+{}".format(extra)] if extra > 0 else [])
+
+    parts = []
+    if late:
+        parts.append("{} résumé(s) en retard sur une décision : {}".format(len(late), ", ".join(
+            cap(["#{} ({} décision(s), la dernière le {})".format(n, c, d[:10])
+                 for n, (c, d) in sorted(late.items())]))))
+    if received:
+        parts.append("éléments reçus à intégrer : {}".format(", ".join(
+            cap(["#{} ({})".format(n, c) for n, c in sorted(received.items())]))))
+    return ("Suivi des décisions (OPEN-170) : " + " ; ".join(parts) + ". À signaler au "
+            "propriétaire en une ligne ; tenir le résumé à jour dans le même geste "
+            "(docs/GOUVERNANCE-GITHUB-ISSUES.md §12).")
+
+
+def compact_text(stdin_text):
+    """Mode --compact : fiche de reprise du lot déclaré pour cette session, ou rien."""
+    try:
+        payload = json.loads(stdin_text) if stdin_text.strip() else {}
+    except ValueError:
+        payload = {}
+    session_id = payload.get("session_id") or os.environ.get("CLAUDE_CODE_SESSION_ID", "")
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import reprendre_lot
+        state = reprendre_lot.load_state(session_id)
+    except Exception:
+        return ""
+    if not state or not state.get("fiche"):
+        return ""
+    head = ("Reprise après compaction (OPEN-170) — lot déclaré par /reprendre-lot pour cette "
+            "session : #{} ({}). Fiche lue le {} ; elle n'a aucune autorité propre : l'Issue "
+            "fait foi.".format(state.get("issue"), state.get("lot"), state.get("lue_le")))
+    try:
+        timeout = float(os.environ.get("ARKONEX_TRACE_TIMEOUT", "6"))
+        data = reprendre_lot.gh_graphql(reprendre_lot.FRESH_QUERY, {"n": state.get("issue")},
+                                        timeout)
+        updated = data["repository"]["issue"]["updatedAt"]
+        if updated > state.get("issue_updated_at", ""):
+            head += (" L'Issue a changé depuis la fiche (mise à jour {}) : relancer "
+                     "/reprendre-lot {} avant d'agir.".format(updated, state.get("issue")))
+    except Exception:
+        head += (" Fraîcheur non vérifiée (GitHub indisponible) : relire l'Issue avant d'agir.")
+    return head + "\n\n" + state["fiche"]
+
+
 def main():
+    if "--compact" in sys.argv[1:]:
+        try:
+            text = compact_text(sys.stdin.read())
+        except Exception:  # jamais bloquant
+            text = ""
+        if text:
+            json.dump({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                              "additionalContext": text}},
+                      sys.stdout, ensure_ascii=False)
+        return 0
     try:
         guard_problems = check_guards()
         docs_problems, notes = check_docs()
@@ -255,6 +375,11 @@ def main():
         followup = followup_text()
     except Exception as exc:  # indépendant : n'affecte jamais les deux autres contrôles
         followup = "Suivi GitHub (OPEN-169) indisponible ({}).".format(type(exc).__name__)
+    try:
+        trace = trace_text()
+    except Exception as exc:  # indépendant, comme le suivi GitHub
+        trace = "Suivi des décisions (OPEN-170) indisponible ({}).".format(type(exc).__name__)
+    followup = (followup + " " + trace).strip()
     lines = []
     if guard_problems:
         lines.append("GARDE-FOUS INACTIFS OU DÉFAILLANTS : " + " ; ".join(guard_problems)

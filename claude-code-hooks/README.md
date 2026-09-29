@@ -93,6 +93,50 @@ avec les deux vérifications) ; en cas d'échec (réseau, `gh`, délai, réponse
 ligne « indisponible », sans jamais bloquer la session. Variables utiles aux tests :
 `ARKONEX_GH` (binaire `gh`), `ARKONEX_FOLLOWUP=off`, `ARKONEX_FOLLOWUP_TIMEOUT`.
 
+**Suivi des décisions** (`OPEN-170`,
+[Issue #195](https://github.com/Tweezer1/arkonex-ops-docs/issues/195)). Même principe, avec une
+requête distincte, bornée à 6 s. Parmi les lots `open-lot` actifs depuis 7 jours, il relève :
+
+- ceux dont le résumé (le corps de l'Issue) est plus ancien qu'un commentaire de décision
+  marqué `[DÉCIDÉ-MÉTIER — …]` ;
+- les lignes « Reçu de #N … — à intégrer » de leur tableau des décisions
+  (`docs/GOUVERNANCE-GITHUB-ISSUES.md` §12).
+
+Le résultat va à l'agent seulement. Variables : `ARKONEX_TRACE=off`, `ARKONEX_TRACE_TIMEOUT`.
+
+**Après une compaction** : une seconde entrée `SessionStart`, filtrée sur `compact`, appelle
+`session_start.py --compact`.
+
+- Si la session a déclaré un lot par `/reprendre-lot`, sa fiche est réinjectée. Un
+  avertissement s'ajoute si l'Issue a changé depuis (une requête de lecture, bornée).
+- Sinon, rien n'est ajouté.
+
+L'entrée générale continue de faire ses vérifications habituelles.
+
+## Reprendre un lot : `/reprendre-lot` (OPEN-170)
+
+`/reprendre-lot 181` lance `reprendre_lot.py 181`. Le skill vit dans `skills/reprendre-lot/SKILL.md`
+et est déployé dans `.claude/skills/`. Le script fait une seule requête GraphQL en lecture
+(Issue, commentaires, mentions, registre `BESOINS-TRANSVERSES.md`), bornée à 20 s et jamais
+bloquante.
+
+Il produit la fiche de reprise de RB-83 §4.10.5 :
+
+- un en-tête lisible par machine (`a_reconcilier`, `recus_non_integres`…) ;
+- l'objectif du lot ;
+- les décisions en vigueur, tirées du tableau §12.2 de l'Issue ;
+- les éléments reçus à intégrer ;
+- les décisions consignées après la dernière mise à jour du résumé ;
+- les mentions reçues d'autres dossiers ;
+- les besoins transverses et les étapes restantes ;
+- les contradictions.
+
+L'agent présente la fiche au propriétaire avant toute action.
+
+Seule écriture : un fichier propre à la session, `~/.cache/arkonex-claude/reprise/<session>.json`
+(modifiable par `ARKONEX_REPRISE_DIR`). Il est indexé par `CLAUDE_CODE_SESSION_ID` et relu après
+une compaction. La fiche n'a aucune autorité propre : l'Issue fait foi.
+
 ## Installer, vérifier, revenir en arrière
 
 ```bash
@@ -100,7 +144,8 @@ ligne « indisponible », sans jamais bloquer la session. Variables utiles aux t
 ```
 
 Sans `--apply`, le script n'écrit rien et affiche le plan. Avec `--apply` : sauvegarde
-horodatée dans `.claude/hooks-backup/`, copie des trois scripts (mode 0755), retrait des
+horodatée dans `.claude/hooks-backup/`, copie des quatre scripts (mode 0755) et du skill
+`/reprendre-lot` (`.claude/skills/`), retrait des
 anciens `block-forbidden-*.sh` (conservés dans la sauvegarde), remplacement de la seule
 section `hooks` de `.claude/settings.json` (les autres réglages sont conservés), puis
 contrôle après installation.
@@ -130,12 +175,23 @@ Retour arrière, restauration à l'identique (empreintes vérifiées) :
   la reconstitution du cas OPEN-124 (fusion deux minutes après la dernière mise à jour du
   dossier), une mention seule non retenue, la pagination, l'échec, le délai dépassé et une
   réponse illisible. Cinq ruptures volontaires du code, toutes détectées.
+- `test_reprise.py` (OPEN-170) : fiche de reprise et suivi des décisions, avec un faux `gh`
+  qui répond selon la requête. Il couvre :
+  - les décisions en vigueur, remplacées et reçues ;
+  - une décision consignée après le résumé, et une mention récente et une ancienne ;
+  - un corps sans tableau ;
+  - l'échec et le délai dépassé, jamais bloquants ;
+  - la réinjection après compaction, avec une Issue changée ou inchangée, et sans lot déclaré ;
+  - l'installation du skill et de l'entrée `compact`.
 - `replay_corpus.py` : rejoue les commandes réellement exécutées par les sessions (lecture
   des transcriptions locales, rien n'est exécuté) ; le détail va dans un fichier hors du
   dépôt (`--out`), les commandes pouvant contenir des données de travail.
 
 Chaque règle a été vérifiée par mutation : la casser volontairement fait échouer les tests
 (24 ruptures volontaires, toutes détectées).
+
+Depuis OPEN-170, la suite tourne aussi sur Linux à chaque PR qui touche ce dossier
+(`.github/workflows/claude-code-hooks-tests.yml`, `python3` du système, aucun accès réseau).
 
 ## Ajouter ou modifier une règle
 

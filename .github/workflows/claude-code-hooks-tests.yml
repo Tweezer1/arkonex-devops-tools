@@ -1,0 +1,47 @@
+name: claude-code-hooks tests
+
+# OPEN-170 (Issue Tweezer1/arkonex-ops-docs#195) : les tests des garde-fous, du contrôle de
+# démarrage et de la fiche de reprise tournent sur Linux à chaque PR, avec le python3 du
+# système, comme sur DEV. Aucun accès réseau : un faux `gh` fournit les réponses GitHub.
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/claude-code-hooks-tests.yml"
+      - "claude-code-hooks/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/claude-code-hooks-tests.yml"
+      - "claude-code-hooks/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: claude-code-hooks-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Run claude-code-hooks tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run tests with the system python3
+        shell: bash
+        run: |
+          set -euo pipefail
+          /usr/bin/python3 --version
+          git --version
+          /usr/bin/python3 -m unittest discover -s claude-code-hooks/tests -v
