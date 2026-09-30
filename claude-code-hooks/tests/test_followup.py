@@ -25,6 +25,9 @@ if mode == "sleep":
 if mode == "garbage":
     print("pas du json")
     sys.exit(0)
+if any("trace-open170" in a for a in sys.argv):  # suivi des décisions (OPEN-170) : rien
+    print('{"data": {"repository": {"issues": {"nodes": []}}}}')
+    sys.exit(0)
 key = "FAKE_GH_PAGE2" if any(a.startswith("after=") for a in sys.argv) else "FAKE_GH_PAGE1"
 with open(os.environ[key], encoding="utf-8") as fh:
     sys.stdout.write(fh.read())

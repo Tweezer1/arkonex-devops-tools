@@ -78,7 +78,7 @@ class Bench(unittest.TestCase):
 
     def session_start(self):
         env = dict(os.environ, HOME=self.tmp, ARKONEX_BENCH_ROOT=self.bench,
-                   ARKONEX_DOCS_DIR=self.docs,
+                   ARKONEX_DOCS_DIR=self.docs, ARKONEX_TRACE="off",
                    ARKONEX_CLAUDE_SETTINGS=os.path.join(self.claude, "settings.json"))
         r = subprocess.run([self.claude + "/hooks/session_start.py"], env=env,
                            capture_output=True, text=True, timeout=60)
