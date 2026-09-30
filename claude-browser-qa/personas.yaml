@@ -96,3 +96,59 @@ personas:
     credentials_file: "hr_manager.env"
     storage_state_file: "hr_manager.json"
     mcp_server_name: "playwright-hr_manager"
+
+  sales_manager:
+    enabled: true
+    display_name: "Sales Manager (canary, OPEN-172 responsable commercial)"
+    login_user_id: "e2e-sales-manager@arkonex.ca"
+    expected_role: "Sales Manager"
+    credentials_file: "sales_manager.env"
+    storage_state_file: "sales_manager.json"
+    mcp_server_name: "playwright-sales_manager"
+
+  sales_manager_2:
+    enabled: true
+    display_name: "Sales Manager 2 (canary, OPEN-172 controle positif)"
+    login_user_id: "e2e-sales-manager-2@arkonex.ca"
+    expected_role: "Sales Manager"
+    credentials_file: "sales_manager_2.env"
+    storage_state_file: "sales_manager_2.json"
+    mcp_server_name: "playwright-sales_manager_2"
+
+  item_manager:
+    enabled: true
+    display_name: "Item Manager (canary, OPEN-172 responsable du catalogue)"
+    login_user_id: "e2e-item-manager@arkonex.ca"
+    expected_role: "Item Manager"
+    credentials_file: "item_manager.env"
+    storage_state_file: "item_manager.json"
+    mcp_server_name: "playwright-item_manager"
+
+  item_manager_2:
+    enabled: true
+    display_name: "Item Manager 2 (canary, OPEN-172 controle positif)"
+    login_user_id: "e2e-item-manager-2@arkonex.ca"
+    expected_role: "Item Manager"
+    credentials_file: "item_manager_2.env"
+    storage_state_file: "item_manager_2.json"
+    mcp_server_name: "playwright-item_manager_2"
+
+  estimate_user_2:
+    enabled: true
+    display_name: "Estimate User 2 (canary, OPEN-172 controle positif)"
+    login_user_id: "e2e-estimate-user-2@arkonex.ca"
+    expected_role: "Estimate User"
+    credentials_file: "estimate_user_2.env"
+    storage_state_file: "estimate_user_2.json"
+    mcp_server_name: "playwright-estimate_user_2"
+
+  employee_2:
+    enabled: true
+    display_name: "Employee 2 (canary, OPEN-171 T1 controle positif P-1)"
+    login_user_id: "e2e-employee-2@arkonex.ca"
+    # Aucun role avant sa fiche employe : ERPNext retire Employee et Employee Self Service
+    # d'un compte sans fiche liee (validate_employee_role). Roles cibles apres l'etape E0 de T1.
+    expected_role: "Employee, Employee Self Service"
+    credentials_file: "employee_2.env"
+    storage_state_file: "employee_2.json"
+    mcp_server_name: "playwright-employee_2"
