@@ -101,7 +101,7 @@ personas:
     enabled: true
     display_name: "Sales Manager (canary, OPEN-172 responsable commercial)"
     login_user_id: "e2e-sales-manager@arkonex.ca"
-    expected_role: "Sales Manager"
+    expected_role: "Sales Manager, Sales User"
     credentials_file: "sales_manager.env"
     storage_state_file: "sales_manager.json"
     mcp_server_name: "playwright-sales_manager"
@@ -110,7 +110,7 @@ personas:
     enabled: true
     display_name: "Sales Manager 2 (canary, OPEN-172 controle positif)"
     login_user_id: "e2e-sales-manager-2@arkonex.ca"
-    expected_role: "Sales Manager"
+    expected_role: "Sales Manager, Sales User"
     credentials_file: "sales_manager_2.env"
     storage_state_file: "sales_manager_2.json"
     mcp_server_name: "playwright-sales_manager_2"
