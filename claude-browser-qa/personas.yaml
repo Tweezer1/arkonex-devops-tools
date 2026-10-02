@@ -142,6 +142,15 @@ personas:
     storage_state_file: "estimate_user_2.json"
     mcp_server_name: "playwright-estimate_user_2"
 
+  estimate_manager_2:
+    enabled: true
+    display_name: "Estimate Manager 2 (canary, OPEN-172 phase C controle positif de l'approbation)"
+    login_user_id: "e2e-estimate-manager-2@arkonex.ca"
+    expected_role: "Estimate Manager, Estimate User"
+    credentials_file: "estimate_manager_2.env"
+    storage_state_file: "estimate_manager_2.json"
+    mcp_server_name: "playwright-estimate_manager_2"
+
   employee_2:
     enabled: true
     display_name: "Employee 2 (canary, OPEN-171 T1 controle positif P-1)"

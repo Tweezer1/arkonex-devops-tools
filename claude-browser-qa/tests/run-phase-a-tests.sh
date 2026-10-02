@@ -349,8 +349,10 @@ open(path, 'w').write(header + sep + tail)
 deployed_out="$(bash "$DEPLOY_ISOLATION_DIR/bootstrap-browser-qa.sh" generate-config \
     --storage-state-dir "$TMP_ROOT/storage-states" 2>&1)"
 rc=0
-echo "$deployed_out" | grep -q "playwright-estimate_manager" && rc=1   # must be ABSENT (disabled in the deployed copy)
-echo "$deployed_out" | grep -q "playwright-estimate_user" || rc=1     # must be PRESENT
+# Exact server names (quoted JSON keys): a substring match would also catch
+# "playwright-estimate_manager_2" / "playwright-estimate_user_2" (OPEN-172 phase C, C0).
+echo "$deployed_out" | grep -qF '"playwright-estimate_manager"' && rc=1   # must be ABSENT (disabled in the deployed copy)
+echo "$deployed_out" | grep -qF '"playwright-estimate_user"' || rc=1     # must be PRESENT
 check "T25_post_deploy_operations_isolated_from_checkout" "$rc"
 
 echo "### T26 -- generated config carries the shared PLAYWRIGHT_BROWSERS_PATH on every server entry (runtime canary correction)"
