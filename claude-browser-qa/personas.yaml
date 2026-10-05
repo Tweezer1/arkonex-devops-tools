@@ -161,3 +161,24 @@ personas:
     credentials_file: "employee_2.env"
     storage_state_file: "employee_2.json"
     mcp_server_name: "playwright-employee_2"
+
+  # OPEN-167 (#181), B-2 et B-4, decision D4 du 2026-10-04 : deux comptes « charge de projet » dedies,
+  # role Projects User seul (contrat de B1, §7.6), habilites dans la societe Arkonex ; aucun droit
+  # d'estimation ni de direction. Le second sert au controle positif (BT-010).
+  project_lead:
+    enabled: true
+    display_name: "Charge de projet (canary, OPEN-167 B-2)"
+    login_user_id: "e2e-project-lead@arkonex.ca"
+    expected_role: "Projects User"
+    credentials_file: "project_lead.env"
+    storage_state_file: "project_lead.json"
+    mcp_server_name: "playwright-project_lead"
+
+  project_lead_2:
+    enabled: true
+    display_name: "Charge de projet 2 (canary, OPEN-167 B-2, controle positif)"
+    login_user_id: "e2e-project-lead-2@arkonex.ca"
+    expected_role: "Projects User"
+    credentials_file: "project_lead_2.env"
+    storage_state_file: "project_lead_2.json"
+    mcp_server_name: "playwright-project_lead_2"
