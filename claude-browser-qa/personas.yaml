@@ -182,3 +182,34 @@ personas:
     credentials_file: "project_lead_2.env"
     storage_state_file: "project_lead_2.json"
     mcp_server_name: "playwright-project_lead_2"
+
+  # OPEN-176 (#215), tranche T1 des prix fournisseurs : responsabilite « consulter le marche » seule
+  # (role « Consultation du marche »), habilitee dans la societe Arkonex, sans role d'estimation ni
+  # d'achat natif ; le second sert au controle positif (BT-010). Le troisieme porte seulement la
+  # responsabilite « qualifier les appels d'offres ».
+  market_buyer:
+    enabled: true
+    display_name: "Consultation du marche (canary, OPEN-176 T1)"
+    login_user_id: "e2e-market-buyer@arkonex.ca"
+    expected_role: "Consultation du marché"
+    credentials_file: "market_buyer.env"
+    storage_state_file: "market_buyer.json"
+    mcp_server_name: "playwright-market_buyer"
+
+  market_buyer_2:
+    enabled: true
+    display_name: "Consultation du marche 2 (canary, OPEN-176 T1, controle positif)"
+    login_user_id: "e2e-market-buyer-2@arkonex.ca"
+    expected_role: "Consultation du marché"
+    credentials_file: "market_buyer_2.env"
+    storage_state_file: "market_buyer_2.json"
+    mcp_server_name: "playwright-market_buyer_2"
+
+  tender_qualifier:
+    enabled: true
+    display_name: "Qualification des appels d'offres (canary, OPEN-176 T1)"
+    login_user_id: "e2e-tender-qualifier@arkonex.ca"
+    expected_role: "Qualification des appels d'offres"
+    credentials_file: "tender_qualifier.env"
+    storage_state_file: "tender_qualifier.json"
+    mcp_server_name: "playwright-tender_qualifier"
