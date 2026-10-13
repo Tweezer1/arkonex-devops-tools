@@ -88,7 +88,7 @@ echo "### T04b -- OPEN-194: production blocked in every generated server (--bloc
 python3 -c "
 import json
 d = json.load(open('$CAND1'))
-want = '--blocked-origins=desk.arkonex.ca;https://desk.arkonex.ca:*;http://desk.arkonex.ca:*'
+want = '--blocked-origins=desk.arkonex.ca;desk.arkonex.ca.;*@desk.arkonex.ca;https://desk.arkonex.ca:*;http://desk.arkonex.ca:*'
 bad = [n for n, s in d['mcpServers'].items() if want not in s['args']]
 assert d['mcpServers'] and not bad, bad
 print('production blocked in', len(d['mcpServers']), 'server(s)')

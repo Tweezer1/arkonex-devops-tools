@@ -39,7 +39,7 @@ mêmes règles. Corps de heredoc, comme bash les traite :
 | Règle | Déclencheur | Réponse |
 |---|---|---|
 | `R-SQL` | client `mysql`/`mariadb` (sauf `--version`/`--help`), `bench … mariadb`/`db-console`, `bench … execute frappe.db.sql` | refus |
-| `R-HOST` | commande réseau (`curl`, `wget`, `ssh`, `scp`, `rsync`, `openssl`…) ou `git` (`clone`, `fetch`, `push`, `remote add`…) dont la **destination** est un hôte `*.arkonex.ca` autre que `deverp.arkonex.ca` ; les données envoyées (`--data`, `-H`, `-e`…) sont ignorées | refus |
+| `R-HOST` | commande réseau (`curl`, `wget`, `ssh`, `scp`, `rsync`, `openssl`, `ping`, `nmap`, `lynx`…) ou `git` (`clone`, `fetch`, `push`, `remote add`…) dont la **destination** est un hôte `*.arkonex.ca` autre que `deverp.arkonex.ca` ; les données envoyées (`--data`, `-H`, `-e`…) sont ignorées | refus |
 | `R-HOST-CODE` | code réellement exécuté par un interpréteur — argument de `-c`/`-e` (python, node, perl…), heredoc donné à un interpréteur ou à `bench console`, arguments de `bench execute` — contenant une URL, ou un nom d'hôte seul passé en argument d'un appel (`SMTP('…')`), vers un autre serveur `arkonex.ca`. Une simple mention du nom, ou une mention ailleurs dans la commande, ne déclenche rien | validation humaine |
 | `R-SITE` | `bench --site X` avec X ni `deverp.arkonex.ca` ni `*.local`, sans distinction de casse (dont `--site all`) | refus |
 | `R-SITE-VAR` | site donné par une variable non résolue | validation humaine |
@@ -48,7 +48,7 @@ mêmes règles. Corps de heredoc, comme bash les traite :
 | `R-BUILD` | `bench build` sans `--app` (OPEN-142) | refus |
 | `R-SECRETS` | Write/Edit sur `sites/<site>/site_config.json`, `.env`, `.env.*` | refus |
 | `R-SUDO` | `sudo` hors vérifications en lecture (`sudo -l …`, `sudo -n true`, `supervisorctl status`, `dmesg`, et pour le statut des services `systemctl status`, `show`, `is-active`, `is-enabled`, `is-failed`, `list-units`, `list-timers`, `list-unit-files`, `cat`) | validation humaine |
-| `R-PUSH-MAIN` | `git push` dont la branche cible est `main`/`master` (y compris `git push` sans destination depuis `main`, `--all`) | validation humaine |
+| `R-PUSH-MAIN` | `git push` dont la branche cible est `main`/`master`/`version-16` (OPEN-194) (y compris `git push` sans destination depuis `main`, `--all`) | validation humaine |
 | `R-PUSH-FORCE` | `git push -f`/`--force`/`--force-with-lease`/`+refspec`/`--mirror` | validation humaine |
 | `R-DROP-SITE` | `bench … drop-site` | validation humaine |
 | `R-ERREUR` | erreur interne d'un garde-fou | validation humaine (jamais silencieux, jamais blocage total) |
@@ -206,14 +206,25 @@ maître** pour cette instance :
   `deverp.arkonex.ca` seul domaine de confiance ; la production (`desk.arkonex.ca` et tout
   autre hôte `arkonex.ca`) déclarée **destination interdite** ; nos cinq dépôts, limités
   aux opérations ordinaires d'un lot ; emplacement des secrets ;
-- **autorisations** (`allow`) : comptes d'essai et habilitations, données d'essai
-  fictives, Browser QA, sur DEV et les bancs `.local` seulement ;
-- **blocage** (`soft_deny`) : opérations protégées sur les cinq dépôts (envoi hors
-  `lot/*`, envoi forcé, fusion, suppression de branche, fermeture d'Issue, réglages),
-  sauf demande explicite du propriétaire pour cette opération précise ;
+- **autorisations** (`allow`) : comptes d'essai et leurs rôles non administratifs,
+  données d'essai, Browser QA, sur DEV et les bancs `.local` seulement ; chaque
+  autorisation répète ses exclusions (Administrator et comptes personnels, rôles
+  administratifs sauf si le contrat du lot les nomme, mots de passe, clés d'API, règles de
+  droits des rôles, données de référence importées, écritures comptables non prévues par
+  le contrat, production), car une autorisation n'est pas limitée par les autres ;
+- **blocages** (`soft_deny`) :
+  - opérations protégées sur les cinq dépôts : envoi hors `lot/*`, étiquettes, envoi
+    forcé, fusion ou fermeture de PR, suppression de branche, fermeture d'Issue,
+    publication, écriture de références par `gh api`, réglages du dépôt ; ce blocage prime
+    sur l'exception par défaut « Git Push Destination » ;
+  - installation sur DEV : changer le code extrait dans `apps/*`, `bench migrate`, `build`
+    ou `restart` sur `deverp`, sans le GO d'installation du lot ;
+  - chacun tombe seulement sur demande explicite du propriétaire, dans la conversation ;
 - **interdit absolu** (`hard_deny`) : toute connexion à la production, par n'importe
   quel outil, lectures comprises ; aucune demande ne le lève ;
 - **refus fixe** (`permissions.deny`) : `WebFetch` vers `arkonex.ca` et `*.arkonex.ca`.
+  Il vaut aussi pour `deverp` (le joker couvre tous les sous-domaines) : pour DEV, utiliser
+  `curl` ou Browser QA.
 
 Règles d'écriture :
 
@@ -221,8 +232,8 @@ Règles d'écriture :
   par défaut de Claude Code au lieu de les compléter ;
 - la production n'apparaît que comme destination interdite, jamais comme ressource de
   confiance ni comme destination autorisée ;
-- aucune autorisation ne couvre un mot de passe, une clé d'API, un compte réel ou
-  Administrator.
+- chaque autorisation énonce elle-même ses exclusions ;
+- `automode_verifier.py` contrôle ces règles d'écriture, sans tenir compte de la casse.
 
 **Où ces règles sont lues.** Seulement dans les réglages utilisateur
 (`~/.claude/settings.json`), les réglages gérés et l'option `--settings`. Depuis la
@@ -231,21 +242,31 @@ version 2.1.207, Claude Code **ignore** `autoMode` dans `.claude/settings.json` 
 « The classifier doesn't read `autoMode` from project settings in `.claude/settings.json`
 or `.claude/settings.local.json` »).
 
-**Appliquer** : fusionner `autoMode` et les entrées de `permissions.deny` dans
-`~/.claude/settings.json`, sans toucher aux autres clés (l'application de bureau écrit
-aussi dans ce fichier). Claude Code demande l'accord du propriétaire à l'écran : l'agent
-ne peut pas élargir seul ses propres règles. Les réglages utilisateur sont relus en cours
-de session : prévenir d'abord les sessions ouvertes.
+**Appliquer**, après fusion, en prévenant d'abord les sessions ouvertes (les réglages
+utilisateur et les garde-fous sont relus en cours de session) :
+
+1. garde-fou Bash : `install.py --apply` (section « Installer » ci-dessus) ;
+2. navigateurs : déployer la copie contrôlée puis régénérer `.mcp.json`
+   (`claude-browser-qa/bootstrap-browser-qa.sh deploy --apply`, puis
+   `generate-config --apply`) ; seules les sessions ouvertes ensuite chargent la nouvelle
+   configuration ;
+3. règles : fusionner `autoMode` et les entrées de `permissions.deny` dans
+   `~/.claude/settings.json`, sans toucher aux autres clés (l'application de bureau écrit
+   aussi dans ce fichier). Claude Code demande l'accord du propriétaire à l'écran :
+   l'agent ne peut pas élargir seul ses propres règles.
 
 **Vérifier**, après application et après chaque mise à jour de Claude Code (binaire de la
 CLI : `~/.claude/remote/ccd-cli/<version>`, hors du `PATH`) :
 
 ```bash
-CLI=$(ls -d ~/.claude/remote/ccd-cli/* | tail -1); "$CLI" auto-mode config > /tmp/automode-effectif.json && "$CLI" auto-mode defaults > /tmp/automode-defauts.json && /usr/bin/python3 claude-code-hooks/automode_verifier.py /tmp/automode-effectif.json /tmp/automode-defauts.json
+CLI=$(ls -d ~/.claude/remote/ccd-cli/* | sort -V | tail -1); D=$(mktemp -d); "$CLI" auto-mode config > "$D/effectif.json" && "$CLI" auto-mode defaults > "$D/defauts.json" && /usr/bin/python3 claude-code-hooks/automode_verifier.py "$D/effectif.json" "$D/defauts.json"; rm -rf "$D"
 ```
 
-Le contrôle affiche `PASS` si chaque règle de `automode.json` est active et si aucune
-règle par défaut n'a été perdue.
+Le contrôle affiche `PASS` si la configuration effective est exactement `automode.json`
+(règles par défaut à la place de `"$defaults"`, sans perte ni ajout), si les refus fixes
+`WebFetch` sont dans les réglages utilisateur, si le garde-fou installé refuse `openssl`
+vers la production et demande validation pour un envoi sur `version-16`, et si chaque
+serveur navigateur de `.mcp.json` bloque la production.
 
 **Revenir en arrière** : `"$CLI" auto-mode reset` retire la section `autoMode` des
 réglages utilisateur ; retirer à la main les deux entrées `WebFetch` de

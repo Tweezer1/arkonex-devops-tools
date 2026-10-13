@@ -164,7 +164,8 @@ storageState  /var/lib/arkonex-browser-qa/storage-states/<persona>.json
 
 MCP (--isolated --storage-state=...) : AUCUN accès credentials, AUCUN --secrets
 MCP (--blocked-origins=desk.arkonex.ca;…) : la production n'est jamais une destination
-                (OPEN-194 ; barrière fixe de plus, pas une frontière contre les redirections)
+                (OPEN-194 ; barrière fixe de plus : bloque les requêtes, pas la connexion
+                anticipée de Chromium, ni les redirections, WebSocket et service workers)
 
 navigateur      /opt/arkonex-browser-qa/browsers (PLAYWRIGHT_BROWSERS_PATH partagé)
                 → installé une seule fois (bootstrap-browser-qa.sh browser-install --apply)

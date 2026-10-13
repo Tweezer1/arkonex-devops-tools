@@ -46,7 +46,9 @@ CODE_OPTS = {"-c", "-e", "-E", "-p", "-r", "--eval", "--print"}
 
 NET_CMDS = {"curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet",
             "http", "https", "xh", "ftp", "lftp", "socat", "mosh",
-            "openssl"}  # OPEN-194 : openssl s_client -connect hôte:port ouvre une connexion
+            # OPEN-194 : autres commandes qui ouvrent une connexion vers l'hôte nommé
+            "openssl", "gnutls-cli", "ping", "tracepath", "traceroute", "nmap",
+            "aria2c", "lynx", "w3m", "links", "elinks"}
 # Options dont la valeur est une donnée envoyée ou un fichier local, pas une destination.
 DATA_OPTS = {
     "curl": {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--data-ascii",
@@ -80,7 +82,7 @@ WRAPPERS = {
 }
 SKIP_WHOLE = {"for", "case", "select", "function", "fi", "done", "esac", "[[", "]]", "[",
               "test", "echo", "printf", "true", "false", ":"}
-PROTECTED_BRANCHES = {"main", "master"}
+PROTECTED_BRANCHES = {"main", "master", "version-16"}  # OPEN-194 : version-16 = intégration des apps
 INFO_FLAGS = {"--version", "-V", "--help", "-?"}
 SEP_CHARS = set(";&|()\n")
 
