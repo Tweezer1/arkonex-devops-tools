@@ -109,6 +109,21 @@ CASES = [
     ("ssh frappe@desk.arkonex.ca ls", DENY),
     ("rsync -a ./x autre.arkonex.ca:/tmp/", DENY),
     ("curl --url=https://desk.arkonex.ca/x", DENY),
+    # OPEN-194 : openssl s_client ouvre une connexion ; ses autres usages restent libres
+    ("openssl s_client -connect desk.arkonex.ca:443 </dev/null", DENY),
+    ("openssl s_client -brief -proxy 127.0.0.1:18089 -connect desk.arkonex.ca:443", DENY),
+    ("openssl s_client -connect deverp.arkonex.ca:443 -servername deverp.arkonex.ca </dev/null", ALLOW),
+    ("openssl x509 -in cert.pem -noout -dates", ALLOW),
+    ("openssl version", ALLOW),
+    # OPEN-194 (relecture U2) : autres commandes réseau, et version-16 protégée
+    ("ping -c 1 desk.arkonex.ca", DENY),
+    ("gnutls-cli desk.arkonex.ca", DENY),
+    ("lynx -dump https://desk.arkonex.ca/", DENY),
+    ("ping -c 1 deverp.arkonex.ca", ALLOW),
+    ("git push origin version-16", ASK),
+    ("git push origin HEAD:version-16", ASK),
+    ("git push origin lot/open-194-x:refs/heads/version-16", ASK),
+    ("git push -u origin lot/open-194-x", ALLOW),
     # RELECTURE : git vers un autre serveur Arkonex
     ("git push https://desk.arkonex.ca/repo.git lot/x", DENY),
     ("git remote add autre ssh://frappe@desk.arkonex.ca/repo.git", DENY),

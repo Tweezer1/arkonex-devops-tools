@@ -18,6 +18,7 @@
         "--no-sandbox",
         "--browser=chromium",
         "--isolated",
+        "--blocked-origins=desk.arkonex.ca;desk.arkonex.ca.;*@desk.arkonex.ca;https://desk.arkonex.ca:*;http://desk.arkonex.ca:*",
         "--storage-state=/var/lib/arkonex-browser-qa/storage-states/estimate_user.json"
       ],
       "env": {
@@ -33,6 +34,7 @@
         "--no-sandbox",
         "--browser=chromium",
         "--isolated",
+        "--blocked-origins=desk.arkonex.ca;desk.arkonex.ca.;*@desk.arkonex.ca;https://desk.arkonex.ca:*;http://desk.arkonex.ca:*",
         "--storage-state=/var/lib/arkonex-browser-qa/storage-states/estimate_manager.json"
       ],
       "env": {
