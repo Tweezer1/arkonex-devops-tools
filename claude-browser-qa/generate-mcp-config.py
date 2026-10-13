@@ -45,6 +45,17 @@ REQUIRED_FIELDS = (
     "mcp_server_name",
 )
 
+# OPEN-194 (#307) : la production n'est jamais une destination des navigateurs de test.
+# Forme « hôte » (tous schémas, port par défaut) et formes « origine:* » (tout port).
+# Playwright prévient que ce blocage n'est pas une frontière de sécurité et n'arrête pas
+# une redirection : c'est une barrière fixe de plus, en complément de l'interdit absolu
+# du classificateur (claude-code-hooks/automode.json).
+PRODUCTION_BLOCKED_ORIGINS = ";".join((
+    "desk.arkonex.ca",
+    "https://desk.arkonex.ca:*",
+    "http://desk.arkonex.ca:*",
+))
+
 COMMON_ARGS = (
     "-y",
     f"@playwright/mcp@{MCP_PACKAGE_PINNED_VERSION}",
@@ -52,6 +63,7 @@ COMMON_ARGS = (
     "--no-sandbox",
     "--browser=chromium",
     "--isolated",
+    f"--blocked-origins={PRODUCTION_BLOCKED_ORIGINS}",
 )
 
 

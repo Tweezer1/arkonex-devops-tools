@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "deny": [
+      "WebFetch(domain:arkonex.ca)",
+      "WebFetch(domain:*.arkonex.ca)"
+    ]
+  },
+  "autoMode": {
+    "environment": [
+      "$defaults",
+      "**Arkonex DEV host**: this machine is a dedicated DEVELOPMENT server for the Arkonex ERPNext apps (Linux user `frappe`, bench at `/home/frappe/frappe-bench`). Development and production are strictly separated environments.",
+      "**Arkonex DEV data**: the Frappe site `deverp.arkonex.ca` on this host, and isolated test benches whose sites end in `.local`, hold only fictitious business data and test accounts: no customer data, no real transactions. Changing them is ordinary development and testing work.",
+      "**Arkonex trusted internal domain**: `deverp.arkonex.ca` only.",
+      "**Arkonex production (sensitive remote target, forbidden)**: `desk.arkonex.ca` and every other `arkonex.ca` host except `deverp.arkonex.ca` are PRODUCTION. Production is never a trusted resource and never an allowed destination for any tool.",
+      "**Arkonex source control**: GitHub repos `Tweezer1/arkonex-ops-docs`, `Tweezer1/arkonex-estimate`, `Tweezer1/arkonex-qit`, `Tweezer1/arkonex-mail` and `Tweezer1/arkonex-devops-tools`, their clones under `/home/frappe/frappe-bench/` (`docs`, `apps/arkonex_*`, `arkonex-devops-tools`) and lot worktrees under `/home/frappe/`. The bench directory itself is not a git repo. Ordinary work on them is limited to reading, committing on `lot/*` branches, pushing those branches, and opening or commenting pull requests and Issues for the lot in progress; the operations listed in the Arkonex protected repository operations rule are not ordinary.",
+      "**Arkonex secrets**: `sites/*/site_config.json`, `.env` files, `/etc/arkonex/browser-qa/credentials/` and the Browser QA storage states in `/var/lib/arkonex-browser-qa/storage-states/` hold live credentials."
+    ],
+    "allow": [
+      "$defaults",
+      "Arkonex DEV test access: on `deverp.arkonex.ca` or a `.local` test site, creating, editing, disabling or deleting fictitious test accounts (`e2e-*@arkonex.ca` and the Browser QA persona accounts) and adding or removing their roles, role profiles, User Permissions and company access, when this serves the lot in progress and is reversible, whether done on screen through a Browser QA persona or with `bench --site <that site> console` or `execute`. Not covered: Administrator or any real person's account, setting or reading passwords, generating API keys, role permission rules (DocPerm, Custom DocPerm), any production host.",
+      "Arkonex DEV test data: on `deverp.arkonex.ca` or a `.local` test site, creating, editing, submitting, cancelling and deleting fictitious business records (estimates, projects, items, companies, invoices and the like) for a lot's tests and their cleanup, deleting without force.",
+      "Arkonex Browser QA: browser automation through the Browser QA Playwright MCP servers (`playwright-<persona>`) against `deverp.arkonex.ca` for end-to-end tests, including saving forms; never manual cookie or SID injection and never reading storage-state files."
+    ],
+    "soft_deny": [
+      "$defaults",
+      "Arkonex protected repository operations: on the five Arkonex repos, pushing to `main`, `version-16` or any other non-`lot/*` branch, force-pushing or rewriting published history, merging a pull request, deleting a branch or tag, closing or deleting an Issue, creating a release, or changing repository settings, collaborators, secrets or branch protection, unless the user explicitly asked for that exact operation in this conversation."
+    ],
+    "hard_deny": [
+      "$defaults",
+      "Arkonex production access: any connection, request, page navigation, shell, file transfer, git operation, database access, e-mail relay or deployment toward `desk.arkonex.ca` or any `arkonex.ca` host other than `deverp.arkonex.ca`, by any tool (shell commands, scripts, Frappe console code, browser or other MCP tools, web fetch), read-only requests included. Merely mentioning these names in documents, logs, test fixtures or e-mail addresses is not access."
+    ]
+  }
+}

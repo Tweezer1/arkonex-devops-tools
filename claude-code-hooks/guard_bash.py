@@ -45,7 +45,8 @@ CODE_HOST = re.compile(r"://(?:[^@/\s'\"]+@)?((?:[A-Za-z0-9-]+\.)*arkonex\.ca)(?
 CODE_OPTS = {"-c", "-e", "-E", "-p", "-r", "--eval", "--print"}
 
 NET_CMDS = {"curl", "wget", "ssh", "scp", "sftp", "rsync", "nc", "ncat", "netcat", "telnet",
-            "http", "https", "xh", "ftp", "lftp", "socat", "mosh"}
+            "http", "https", "xh", "ftp", "lftp", "socat", "mosh",
+            "openssl"}  # OPEN-194 : openssl s_client -connect hôte:port ouvre une connexion
 # Options dont la valeur est une donnée envoyée ou un fichier local, pas une destination.
 DATA_OPTS = {
     "curl": {"-d", "--data", "--data-raw", "--data-binary", "--data-urlencode", "--data-ascii",

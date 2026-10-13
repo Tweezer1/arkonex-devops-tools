@@ -163,6 +163,8 @@ storageState  /var/lib/arkonex-browser-qa/storage-states/<persona>.json
                 → Claude : jamais lu/affiché/cat/jq/Python-loadé, jamais addCookies manuel
 
 MCP (--isolated --storage-state=...) : AUCUN accès credentials, AUCUN --secrets
+MCP (--blocked-origins=desk.arkonex.ca;…) : la production n'est jamais une destination
+                (OPEN-194 ; barrière fixe de plus, pas une frontière contre les redirections)
 
 navigateur      /opt/arkonex-browser-qa/browsers (PLAYWRIGHT_BROWSERS_PATH partagé)
                 → installé une seule fois (bootstrap-browser-qa.sh browser-install --apply)

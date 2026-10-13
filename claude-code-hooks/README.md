@@ -39,7 +39,7 @@ mêmes règles. Corps de heredoc, comme bash les traite :
 | Règle | Déclencheur | Réponse |
 |---|---|---|
 | `R-SQL` | client `mysql`/`mariadb` (sauf `--version`/`--help`), `bench … mariadb`/`db-console`, `bench … execute frappe.db.sql` | refus |
-| `R-HOST` | commande réseau (`curl`, `wget`, `ssh`, `scp`, `rsync`…) ou `git` (`clone`, `fetch`, `push`, `remote add`…) dont la **destination** est un hôte `*.arkonex.ca` autre que `deverp.arkonex.ca` ; les données envoyées (`--data`, `-H`, `-e`…) sont ignorées | refus |
+| `R-HOST` | commande réseau (`curl`, `wget`, `ssh`, `scp`, `rsync`, `openssl`…) ou `git` (`clone`, `fetch`, `push`, `remote add`…) dont la **destination** est un hôte `*.arkonex.ca` autre que `deverp.arkonex.ca` ; les données envoyées (`--data`, `-H`, `-e`…) sont ignorées | refus |
 | `R-HOST-CODE` | code réellement exécuté par un interpréteur — argument de `-c`/`-e` (python, node, perl…), heredoc donné à un interpréteur ou à `bench console`, arguments de `bench execute` — contenant une URL, ou un nom d'hôte seul passé en argument d'un appel (`SMTP('…')`), vers un autre serveur `arkonex.ca`. Une simple mention du nom, ou une mention ailleurs dans la commande, ne déclenche rien | validation humaine |
 | `R-SITE` | `bench --site X` avec X ni `deverp.arkonex.ca` ni `*.local`, sans distinction de casse (dont `--site all`) | refus |
 | `R-SITE-VAR` | site donné par une variable non résolue | validation humaine |
@@ -192,6 +192,64 @@ Chaque règle a été vérifiée par mutation : la casser volontairement fait é
 
 Depuis OPEN-170, la suite tourne aussi sur Linux à chaque PR qui touche ce dossier
 (`.github/workflows/claude-code-hooks-tests.yml`, `python3` du système, aucun accès réseau).
+
+## Règles du mode automatique : `automode.json` (OPEN-194)
+
+Lot : `OPEN-194-DEVOPS-CLAUDE-CODE-AUTOMODE-RULES-001`
+([Issue #307](https://github.com/Tweezer1/arkonex-ops-docs/issues/307)).
+
+En mode automatique, un classificateur (un modèle) examine chaque action avant de la
+laisser passer. Ses règles s'écrivent en prose. `automode.json` en est la **source
+maître** pour cette instance :
+
+- **contexte** (`environment`) : serveur de développement ; données de DEV fictives ;
+  `deverp.arkonex.ca` seul domaine de confiance ; la production (`desk.arkonex.ca` et tout
+  autre hôte `arkonex.ca`) déclarée **destination interdite** ; nos cinq dépôts, limités
+  aux opérations ordinaires d'un lot ; emplacement des secrets ;
+- **autorisations** (`allow`) : comptes d'essai et habilitations, données d'essai
+  fictives, Browser QA, sur DEV et les bancs `.local` seulement ;
+- **blocage** (`soft_deny`) : opérations protégées sur les cinq dépôts (envoi hors
+  `lot/*`, envoi forcé, fusion, suppression de branche, fermeture d'Issue, réglages),
+  sauf demande explicite du propriétaire pour cette opération précise ;
+- **interdit absolu** (`hard_deny`) : toute connexion à la production, par n'importe
+  quel outil, lectures comprises ; aucune demande ne le lève ;
+- **refus fixe** (`permissions.deny`) : `WebFetch` vers `arkonex.ca` et `*.arkonex.ca`.
+
+Règles d'écriture :
+
+- chaque liste commence par `"$defaults"` : sans lui, la liste **remplace** les règles
+  par défaut de Claude Code au lieu de les compléter ;
+- la production n'apparaît que comme destination interdite, jamais comme ressource de
+  confiance ni comme destination autorisée ;
+- aucune autorisation ne couvre un mot de passe, une clé d'API, un compte réel ou
+  Administrator.
+
+**Où ces règles sont lues.** Seulement dans les réglages utilisateur
+(`~/.claude/settings.json`), les réglages gérés et l'option `--settings`. Depuis la
+version 2.1.207, Claude Code **ignore** `autoMode` dans `.claude/settings.json` et
+`.claude/settings.local.json` ([auto-mode-config](https://code.claude.com/docs/en/auto-mode-config) :
+« The classifier doesn't read `autoMode` from project settings in `.claude/settings.json`
+or `.claude/settings.local.json` »).
+
+**Appliquer** : fusionner `autoMode` et les entrées de `permissions.deny` dans
+`~/.claude/settings.json`, sans toucher aux autres clés (l'application de bureau écrit
+aussi dans ce fichier). Claude Code demande l'accord du propriétaire à l'écran : l'agent
+ne peut pas élargir seul ses propres règles. Les réglages utilisateur sont relus en cours
+de session : prévenir d'abord les sessions ouvertes.
+
+**Vérifier**, après application et après chaque mise à jour de Claude Code (binaire de la
+CLI : `~/.claude/remote/ccd-cli/<version>`, hors du `PATH`) :
+
+```bash
+CLI=$(ls -d ~/.claude/remote/ccd-cli/* | tail -1); "$CLI" auto-mode config > /tmp/automode-effectif.json && "$CLI" auto-mode defaults > /tmp/automode-defauts.json && /usr/bin/python3 claude-code-hooks/automode_verifier.py /tmp/automode-effectif.json /tmp/automode-defauts.json
+```
+
+Le contrôle affiche `PASS` si chaque règle de `automode.json` est active et si aucune
+règle par défaut n'a été perdue.
+
+**Revenir en arrière** : `"$CLI" auto-mode reset` retire la section `autoMode` des
+réglages utilisateur ; retirer à la main les deux entrées `WebFetch` de
+`permissions.deny`.
 
 ## Ajouter ou modifier une règle
 
