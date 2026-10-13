@@ -32,6 +32,9 @@ SECTIONS = ("environment", "allow", "soft_deny", "hard_deny")
 DEV_HOST = "deverp.arkonex.ca"
 PRODUCTION = "desk.arkonex.ca"
 REFUS_FIXES = ("WebFetch(domain:arkonex.ca)", "WebFetch(domain:*.arkonex.ca)")
+# Même liste que claude-browser-qa/generate-mcp-config.py (PRODUCTION_BLOCKED_ORIGINS).
+ORIGINES_BLOQUEES = ("desk.arkonex.ca", "desk.arkonex.ca.", "*@desk.arkonex.ca",
+                     "https://desk.arkonex.ca:*", "http://desk.arkonex.ca:*")
 # Hôte arkonex.ca, sauf domaine d'une adresse e-mail (précédé de @).
 HOTE = re.compile(r"(?<![@\w.-])((?:[a-z0-9-]+\.)*arkonex\.ca)(?![a-z0-9-])", re.I)
 
@@ -112,9 +115,13 @@ def verifier_mcp(mcp):
     if not navigateurs:
         ecarts.append(".mcp.json : aucun serveur navigateur trouvé")
     for nom, s in sorted(navigateurs.items()):
-        bloques = [a for a in s.get("args") or [] if str(a).startswith("--blocked-origins=")]
-        if not any(PRODUCTION in a for a in bloques):
-            ecarts.append(".mcp.json : {} ne bloque pas la production".format(nom))
+        bloques = set()
+        for a in s.get("args") or []:
+            if str(a).startswith("--blocked-origins="):
+                bloques.update(str(a).split("=", 1)[1].split(";"))
+        manquantes = [o for o in ORIGINES_BLOQUEES if o not in bloques]
+        if manquantes:
+            ecarts.append(".mcp.json : {} ne bloque pas {}".format(nom, ", ".join(manquantes)))
     return ecarts
 
 

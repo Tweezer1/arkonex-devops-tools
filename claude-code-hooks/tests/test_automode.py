@@ -25,7 +25,7 @@ with open(os.path.join(ROOT, "automode.json"), encoding="utf-8") as _fh:
     REF = json.load(_fh)
 
 DEFAUTS = {s: ["défaut {} 1".format(s), "défaut {} 2".format(s)] for s in av.SECTIONS}
-BLOQUE = "--blocked-origins=desk.arkonex.ca;https://desk.arkonex.ca:*"
+BLOQUE = "--blocked-origins=" + ";".join(av.ORIGINES_BLOQUEES)
 MCP_OK = {"mcpServers": {"playwright-a": {"command": "npx", "args": ["-y", "@playwright/mcp@0.0.80", BLOQUE]},
                          "autre": {"command": "x", "args": []}}}
 
@@ -125,7 +125,12 @@ class DeploiementTest(unittest.TestCase):
         self.assertEqual(av.verifier_mcp(MCP_OK), [])
         sans = copy.deepcopy(MCP_OK)
         sans["mcpServers"]["playwright-a"]["args"] = ["-y", "@playwright/mcp@0.0.80"]
-        self.assertEqual(av.verifier_mcp(sans), [".mcp.json : playwright-a ne bloque pas la production"])
+        self.assertEqual(len(av.verifier_mcp(sans)), 1)
+        partiel = copy.deepcopy(MCP_OK)
+        partiel["mcpServers"]["playwright-a"]["args"][-1] = "--blocked-origins=desk.arkonex.ca"
+        self.assertEqual(av.verifier_mcp(partiel),
+                         [".mcp.json : playwright-a ne bloque pas desk.arkonex.ca., *@desk.arkonex.ca, "
+                          "https://desk.arkonex.ca:*, http://desk.arkonex.ca:*"])
         self.assertEqual(av.verifier_mcp({"mcpServers": {}}), [".mcp.json : aucun serveur navigateur trouvé"])
 
     def test_gardes(self):

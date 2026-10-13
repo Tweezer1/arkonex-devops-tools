@@ -59,7 +59,7 @@ contourner le circuit normal de permissions.
 
 **Limite assumée** : ils protègent contre l'**erreur**, pas contre un contournement
 délibéré (commande masquée dans une variable, un script intermédiaire, un code Python qui
-appelle une base, un encodage…). Ils ne remplacent ni les règles de `CLAUDE.md`, ni les
+appelle une base, un encodage, une redirection bash vers `/dev/tcp/…`…). Ils ne remplacent ni les règles de `CLAUDE.md`, ni les
 droits du système (l'utilisateur `frappe` n'a pas de `sudo` général ni d'accès root à la
 base).
 
