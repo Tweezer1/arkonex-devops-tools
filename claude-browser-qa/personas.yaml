@@ -213,3 +213,17 @@ personas:
     credentials_file: "tender_qualifier.env"
     storage_state_file: "tender_qualifier.json"
     mcp_server_name: "playwright-tender_qualifier"
+
+  # OPEN-192 (#300), decision du proprietaire du 2026-10-13 (option 1 b) : compte d'essai de CONFIGURATION
+  # (System Manager, Accounts Manager), pour creer des societes et des habilitations sans passer par
+  # Administrator (regle du 2026-09-30). Premier usage : societe « Arkonex Conseil » et habilitation de
+  # e2e-estimate-user-2 dans les deux societes. Usage limite a DEV et a la configuration ; chaque usage est
+  # consigne dans le lot qui s'en sert.
+  config_admin:
+    enabled: true
+    display_name: "Configuration du systeme (societes, habilitations) (OPEN-192)"
+    login_user_id: "e2e-config-admin@arkonex.ca"
+    expected_role: "System Manager, Accounts Manager"
+    credentials_file: "config_admin.env"
+    storage_state_file: "config_admin.json"
+    mcp_server_name: "playwright-config_admin"
