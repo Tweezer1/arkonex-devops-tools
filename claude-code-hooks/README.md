@@ -202,23 +202,31 @@ En mode automatique, un classificateur (un modèle) examine chaque action avant 
 laisser passer. Ses règles s'écrivent en prose. `automode.json` en est la **source
 maître** pour cette instance :
 
-- **contexte** (`environment`) : serveur de développement ; données de DEV fictives ;
+- **contexte** (`environment`) : serveur de développement ; données de DEV fictives,
+  toutes données d'essai jusqu'à la première production, références importées comprises
+  (`OPEN-201`, [Issue #349](https://github.com/Tweezer1/arkonex-ops-docs/issues/349)) ;
   `deverp.arkonex.ca` seul domaine de confiance ; la production (`desk.arkonex.ca` et tout
   autre hôte `arkonex.ca`) déclarée **destination interdite** ; nos cinq dépôts, limités
   aux opérations ordinaires d'un lot ; emplacement des secrets ;
 - **autorisations** (`allow`) : comptes d'essai et leurs rôles non administratifs,
-  données d'essai, Browser QA, sur DEV et les bancs `.local` seulement ; chaque
-  autorisation répète ses exclusions (Administrator et comptes personnels, rôles
-  administratifs sauf si le contrat du lot les nomme, mots de passe, clés d'API, règles de
-  droits des rôles, données de référence importées, écritures comptables non prévues par
-  le contrat, production), car une autorisation n'est pas limitée par les autres ;
+  données d'essai, Browser QA, sur DEV et les bancs `.local` seulement. Les données d'essai
+  se créent, s'importent, se modifient, se soumettent, s'annulent, se suppriment (sans
+  forcer) et se reconstruisent librement, références importées, contrats, factures,
+  paiements et écritures comptables compris, même si le contrat du lot ne les liste pas ;
+  un banc `.local` jetable se réinitialise librement (`OPEN-201`). Chaque autorisation
+  répète ses exclusions (Administrator et comptes personnels, rôles administratifs sauf si
+  le contrat du lot les nomme, mots de passe, clés d'API, règles de droits des rôles, SQL
+  direct, effet externe réel non autorisé, production), car une autorisation n'est pas
+  limitée par les autres ;
 - **blocages** (`soft_deny`) :
   - opérations protégées sur les cinq dépôts : envoi hors `lot/*`, étiquettes, envoi
     forcé, fusion ou fermeture de PR, suppression de branche, fermeture d'Issue,
     publication, écriture de références par `gh api`, réglages du dépôt ; ce blocage prime
     sur l'exception par défaut « Git Push Destination » ;
   - installation sur DEV : changer le code extrait dans `apps/*`, `bench migrate`, `build`
-    ou `restart` sur `deverp`, sans le GO d'installation du lot ;
+    ou `restart` sur `deverp`, sans le GO d'installation du lot ; depuis `OPEN-201`, le GO
+    unique d'un lot `U1`/`U2`, visible dans la conversation (donné par le propriétaire ou
+    consigné sur l'Issue), le lève une fois la PR fusionnée par le propriétaire ;
   - chacun tombe seulement sur demande explicite du propriétaire, dans la conversation ;
 - **interdit absolu** (`hard_deny`) : toute connexion à la production, par n'importe
   quel outil, lectures comprises ; aucune demande ne le lève ;
