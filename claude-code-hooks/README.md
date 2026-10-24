@@ -225,8 +225,10 @@ maître** pour cette instance :
     sur l'exception par défaut « Git Push Destination » ;
   - installation sur DEV : changer le code extrait dans `apps/*`, `bench migrate`, `build`
     ou `restart` sur `deverp`, sans le GO d'installation du lot ; depuis `OPEN-201`, le GO
-    unique d'un lot `U1`/`U2`, visible dans la conversation (donné par le propriétaire ou
-    consigné sur l'Issue), le lève une fois la PR fusionnée par le propriétaire ;
+    unique d'un lot `U1`/`U2` couvre l'installation après fusion : le blocage tombe quand
+    `gh pr view`, dans la conversation, montre la PR du lot fusionnée et que l'installation
+    n'apporte que ce code (la fusion exige elle-même la demande du propriétaire) ; un GO
+    écrit par l'agent seul, sur l'Issue ou ailleurs, ne compte pas ;
   - chacun tombe seulement sur demande explicite du propriétaire, dans la conversation ;
 - **interdit absolu** (`hard_deny`) : toute connexion à la production, par n'importe
   quel outil, lectures comprises ; aucune demande ne le lève ;
