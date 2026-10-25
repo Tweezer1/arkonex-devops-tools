@@ -10,7 +10,7 @@ En cas d'écart, le contrat prévaut sur ce README.
 | Protection | Fichier | Effet |
 |---|---|---|
 | P1 | `nftables/arkonex-mailqa.nft` | Aucune connexion TCP sortante vers 25, 465, 587 et 2525, en IPv4 et IPv6, pour tous les utilisateurs de la machine (DEV et bancs). Persistant : inclus par `/etc/nftables.conf`, service `nftables` activé au démarrage. |
-| P2 | `systemd/mailpit-qa.service` | Mailpit `v1.31.4` (empreinte figée dans `mail-qa.conf`), utilisateur `mailqa`. SMTP sur `127.0.0.1:1025` et interface et API sur `127.0.0.1:8025`. **Aucun relais, aucun transfert automatique, aucun webhook**, environnement vidé. Le mode « chaos » sert à simuler une erreur d'envoi. |
+| P2 | `systemd/mailpit-qa.service` | Mailpit `v1.31.4` (empreinte figée dans `mail-qa.conf`), utilisateur `mailqa`. SMTP sur `127.0.0.1:1025` et interface et API sur `127.0.0.1:8025`. **Aucun relais, aucun transfert automatique, aucun webhook** : ces options sont absentes de la commande, les variables `MP_*` correspondantes sont retirées, et le service ne peut joindre aucune adresse hors de la machine (`IPAddressDeny=any`). Le mode « chaos » sert à simuler une erreur d'envoi. |
 | P3 à P6 | (serveur de courriel, compte `qa@arkonex.ca` seulement, fait par le propriétaire) | Le compte QA ne peut ni envoyer, ni programmer de règle de tri, ni se connecter ailleurs que depuis DEV. |
 
 **Mode M1** : ERPNext envoie, Mailpit capture. `mail_qa.py reply` fabrique une réponse **synthétique** et la dépose par IMAP `APPEND` dans la boîte QA. La relève native d'ERPNext la rattache au document d'origine par le fil.
@@ -36,6 +36,12 @@ python3 mail-qa/mail_qa.py verify
   - boîte entrante QA seulement, et seulement sur `deverp.arkonex.ca`.
 
 Il se termine par `VERIFY_MAIL_QA=PASS` ou `FAIL` (code 0 ou 1).
+
+**Ce que `verify` prouve, et ce qu'il ne prouve pas** :
+- **IPv4** : P1 rejette localement par RST. Avec P1 chargé, chaque sonde vers 25, 465, 587 et 2525 est refusée immédiatement, y compris sur 25 et 2525, que le filtrage distant ou AWS laisse autrement sans réponse. Un délai dépassé est donc « non probant » et compte comme FAIL. C'est la preuve, sans droits root, que la règle est chargée dans le noyau.
+- **IPv6** : DEV n'a aucune route IPv6 (relu le 2026-10-25). La sortie y est impossible, mais P1 n'y est pas exercé. Il ne l'est que par construction (table `inet`), et c'est signalé en INFO.
+- **Bancs** : seuls les bancs de cette machine qui ont `sites/apps.txt` sous `/home/frappe/` sont vus. Un banc ailleurs reste hors garantie.
+- **Ports** : seuls 25, 465, 587 et 2525 sont bloqués. Un serveur SMTP sur un autre port reste dans la « limite connue », tenue par contrôle.
 
 ## Installation (propriétaire, en root)
 
@@ -78,6 +84,11 @@ DEV seulement, dépôt dans la boîte QA, puis relève :
 - un expéditeur en `@essai.invalid`.
 
 Un tel message ne vaut jamais acceptation ni approbation externe.
+
+**Gardes de l'outil** :
+- `reply` et `pull` n'agissent que sur la boîte `qa@arkonex.ca` de `mail.arkonex.ca`, et seulement sur `deverp.arkonex.ca`. Le TLS IMAP vérifie le certificat.
+- `reply`, `inject` et `pull` refusent un site dont la messagerie n'est pas conforme.
+- **Règle de #347** : aucun message synthétique ne doit être rattaché à une Purchase Order, un Project ou un Contract, sinon il vaudrait pièce d'accord pour le contrôle de T1 d'OPEN-200. `reply` et `inject` refusent de répondre à un tel message. `inject` annule si la Communication créée y serait rattachée, et `pull` le signale (code 1).
 
 ## Retour arrière (contrat §10)
 

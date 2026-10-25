@@ -155,6 +155,7 @@ class TestSiteRules(unittest.TestCase):
 UNIT_OK = {
 	"ExecStart": "{ path=/opt/arkonex-mail-qa/bin/mailpit ; argv[]=/opt/arkonex-mail-qa/bin/mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025 ; }",
 	"Environment": "", "EnvironmentFiles": "", "ActiveState": "active", "UnitFileState": "enabled",
+	"IPAddressDeny": "0.0.0.0/0 ::/0",
 }
 
 
@@ -169,9 +170,26 @@ class TestMailpitRules(unittest.TestCase):
 	def test_each_forbidden_flag_fails(self):
 		for flag in self.EXPECTED_FORBIDDEN:
 			with self.subTest(flag=flag):
-				unit = dict(UNIT_OK, ExecStart=UNIT_OK["ExecStart"] + " " + flag + " x")
+				unit = dict(UNIT_OK, ExecStart=UNIT_OK["ExecStart"].replace(" ; }", " " + flag + " x ; }"))
 				res = mail_qa.evaluate_mailpit_unit(unit, {"MessageRelay": {"Enabled": False}}, [])
 				self.assertTrue(any(s == "FAIL" and flag in t for s, t in res))
+
+	def test_option_forms_and_duplicates_are_parsed_not_substring_matched(self):
+		cases = {
+			"--smtp-relay-all=true": "relais",
+			"--smtp 0.0.0.0:1025": "local",
+			"-s [::]:1025": "local",
+			"--pop3 127.0.0.1:1110": "local",
+		}
+		for extra, word in cases.items():
+			with self.subTest(extra=extra):
+				unit = dict(UNIT_OK, ExecStart=UNIT_OK["ExecStart"].replace(" ; }", " " + extra + " ; }"))
+				res = mail_qa.evaluate_mailpit_unit(unit, {"MessageRelay": {"Enabled": False}}, [])
+				self.assertTrue(any(s == "FAIL" and word in t for s, t in res), res)
+
+	def test_network_confinement_of_unit_required(self):
+		res = mail_qa.evaluate_mailpit_unit(dict(UNIT_OK, IPAddressDeny=""), {"MessageRelay": {"Enabled": False}}, [])
+		self.assertTrue(any(s == "FAIL" and "IPAddressDeny" in t for s, t in res))
 
 	def test_mp_environment_fails(self):
 		unit = dict(UNIT_OK, Environment="MP_SMTP_RELAY_ALL=true")
@@ -199,6 +217,10 @@ class TestMailpitRules(unittest.TestCase):
 		self.assertIn("--smtp 127.0.0.1:1025", exec_line)
 		self.assertIn("--listen 127.0.0.1:8025", exec_line)
 		self.assertIn("UnsetEnvironment=", text)
+		self.assertIn("IPAddressDeny=any", text)
+		self.assertIn("IPAddressAllow=localhost", text)
+		for var in ("MP_SMTP_RELAY_HOST", "MP_SMTP_FORWARD_TO", "MP_WEBHOOK_URL"):
+			self.assertIn(var, text)
 		self.assertIn("User=mailqa", text)
 
 
@@ -254,11 +276,29 @@ class TestTcpOpen(unittest.TestCase):
 
 		thread = threading.Thread(target=accept)
 		thread.start()
-		self.assertEqual(mail_qa.tcp_open("127.0.0.1", port), [("127.0.0.1", True)])
+		self.assertEqual(mail_qa.tcp_open("127.0.0.1", port), [("127.0.0.1", socket.AF_INET, mail_qa.OPEN)])
 		thread.join(5)
 		server.close()
 		self.assertEqual(received, [b""])  # rien n'a été envoyé avant la fermeture
-		self.assertEqual(mail_qa.tcp_open("127.0.0.1", port, timeout=1), [("127.0.0.1", False)])
+		self.assertEqual(mail_qa.tcp_open("127.0.0.1", port, timeout=1), [("127.0.0.1", socket.AF_INET, mail_qa.REFUSED)])
+
+	def test_error_classification(self):
+		import errno
+		self.assertEqual(mail_qa.classify_connect_error(ConnectionRefusedError()), mail_qa.REFUSED)
+		self.assertEqual(mail_qa.classify_connect_error(ConnectionResetError()), mail_qa.REFUSED)
+		self.assertEqual(mail_qa.classify_connect_error(TimeoutError()), mail_qa.TIMEOUT)
+		self.assertEqual(mail_qa.classify_connect_error(OSError(errno.ENETUNREACH, "x")), mail_qa.NO_ROUTE)
+
+	def test_only_active_refusal_proves_p1(self):
+		v4, v6 = socket.AF_INET, socket.AF_INET6
+		probe = mail_qa.evaluate_smtp_probe
+		self.assertEqual(probe("h", 587, "1.2.3.4", v4, mail_qa.REFUSED)[0], "PASS")
+		self.assertEqual(probe("h", 587, "1.2.3.4", v4, mail_qa.OPEN)[0], "FAIL")
+		self.assertEqual(probe("h", 25, "1.2.3.4", v4, mail_qa.TIMEOUT)[0], "FAIL")
+		self.assertIn("non probant", probe("h", 25, "1.2.3.4", v4, mail_qa.TIMEOUT)[1])
+		self.assertEqual(probe("h", 25, "1.2.3.4", v4, mail_qa.NO_ROUTE)[0], "FAIL")
+		self.assertEqual(probe("h", 465, "::1", v6, mail_qa.NO_ROUTE)[0], "INFO")
+		self.assertEqual(probe("h", 465, "::1", v6, mail_qa.TIMEOUT)[0], "FAIL")
 
 
 class TestIterSites(unittest.TestCase):
@@ -320,3 +360,44 @@ class TestInstallPlanMode(unittest.TestCase):
 
 if __name__ == "__main__":
 	unittest.main()
+
+
+class TestGuards(unittest.TestCase):
+	def test_imap_tls_verifies_certificate_and_hostname(self):
+		import ssl
+		ctx = mail_qa.imap_ssl_context()
+		self.assertEqual(ctx.verify_mode, ssl.CERT_REQUIRED)
+		self.assertTrue(ctx.check_hostname)
+
+	def test_qa_account_guard(self):
+		ok = {"name": "QA Arkonex", "email_id": "qa@arkonex.ca", "email_server": "mail.arkonex.ca"}
+		mail_qa.guard_qa_account(ok, CONF, "deverp.arkonex.ca")
+		refused = {
+			"boîte professionnelle": (dict(ok, email_id="direction@arkonex.ca"), "deverp.arkonex.ca"),
+			"login différent": (dict(ok, login_id="direction@arkonex.ca", login_id_is_different=1), "deverp.arkonex.ca"),
+			"autre serveur": (dict(ok, email_server="imap.gmail.com"), "deverp.arkonex.ca"),
+			"banc": (ok, "l2mdb.local"),
+		}
+		for label, (acc, site_name) in refused.items():
+			with self.subTest(label=label):
+				with self.assertRaises(SystemExit) as ctx:
+					mail_qa.guard_qa_account(acc, CONF, site_name)
+				self.assertIn("refus", str(ctx.exception))
+
+	def test_protected_references_of_347(self):
+		refs = [("Quotation", "Q-1"), ("Purchase Order", "PO-1"), ("Project", "P-1"), ("Contract", "C-1"), ("Lead", "L-1")]
+		self.assertEqual(mail_qa.protected_refs(refs), [("Purchase Order", "PO-1"), ("Project", "P-1"), ("Contract", "C-1")])
+		self.assertEqual(mail_qa.protected_refs([("Opportunity", "O-1")]), [])
+
+	def test_gather_site_fails_when_a_required_field_is_missing(self):
+		class Meta:
+			def has_field(self, f):
+				return f != "service"
+
+		class Fake:
+			def get_meta(self, dt):
+				return Meta()
+
+		with self.assertRaises(RuntimeError) as ctx:
+			mail_qa.gather_site(Fake())
+		self.assertIn("service", str(ctx.exception))

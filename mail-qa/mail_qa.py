@@ -25,7 +25,10 @@ import argparse
 import glob
 import json
 import os
+import errno
+import shlex
 import socket
+import ssl
 import subprocess
 import sys
 import urllib.request
@@ -44,6 +47,10 @@ MARK_DOMAIN = "essai.invalid"
 
 SMTP_PORTS = (25, 465, 587, 2525)
 LOCAL_SMTP_HOSTS = {"127.0.0.1", "localhost", "::1"}
+# DocTypes dont une Communication reçue vaut pièce d'accord pour #347 (T1 d'OPEN-200) :
+# aucun message synthétique ne doit y être rattaché (message de la session #347, 2026-10-25).
+PROTECTED_REFERENCE_DOCTYPES = ("Purchase Order", "Project", "Contract")
+REQUIRED_ACCOUNT_FIELDS = ("service", "email_id", "enable_outgoing", "enable_incoming", "smtp_server", "smtp_port")
 FORBIDDEN_MAILPIT_FLAGS = (
 	"--smtp-relay-config",
 	"--smtp-relay-all",
@@ -150,17 +157,31 @@ def build_reply(original: dict, body: str = "", from_addr: str | None = None, at
 # --- Réseau (P1) -------------------------------------------------------------------
 
 
-def tcp_open(host: str, port: int, timeout: float = 4.0) -> list[tuple[str, bool]]:
+OPEN, REFUSED, TIMEOUT, NO_ROUTE, UNRESOLVED = "ouverte", "refusée", "délai dépassé", "sans route", "non résolu"
+
+
+def classify_connect_error(exc: OSError) -> str:
+	"""Distingue un refus actif (RST : la règle P1, ou un port fermé) d'une absence de réponse."""
+	if isinstance(exc, (ConnectionRefusedError, ConnectionResetError)):
+		return REFUSED
+	if isinstance(exc, (TimeoutError, socket.timeout)):
+		return TIMEOUT
+	if getattr(exc, "errno", None) in (errno.ENETUNREACH, errno.EHOSTUNREACH, errno.EADDRNOTAVAIL, errno.EAFNOSUPPORT):
+		return NO_ROUTE
+	return TIMEOUT
+
+
+def tcp_open(host: str, port: int, timeout: float = 4.0) -> list[tuple[str, int, str]]:
 	"""Tente une ouverture TCP vers chaque adresse de `host`, sans rien envoyer ni lire.
 
-	Retourne [(adresse, ouvert)]. La connexion est refermée aussitôt : aucun dialogue
-	SMTP n'a lieu, donc aucun message ne peut partir.
+	Retourne [(adresse, famille, état)]. La connexion est refermée aussitôt : aucun
+	dialogue SMTP n'a lieu, donc aucun message ne peut partir.
 	"""
 	results = []
 	try:
 		infos = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
 	except socket.gaierror:
-		return [(host + " (non résolu)", False)]
+		return [(host, 0, UNRESOLVED)]
 	seen = set()
 	for family, socktype, proto, _canon, addr in infos:
 		if addr[0] in seen:
@@ -170,12 +191,30 @@ def tcp_open(host: str, port: int, timeout: float = 4.0) -> list[tuple[str, bool
 		sock.settimeout(timeout)
 		try:
 			sock.connect(addr)
-			results.append((addr[0], True))
-		except OSError:
-			results.append((addr[0], False))
+			results.append((addr[0], family, OPEN))
+		except OSError as exc:
+			results.append((addr[0], family, classify_connect_error(exc)))
 		finally:
 			sock.close()
 	return results
+
+
+def evaluate_smtp_probe(host: str, port: int, addr: str, family: int, state: str) -> tuple[str, str]:
+	"""Fonction pure : seul un refus actif prouve P1 en IPv4.
+
+	P1 rejette localement par RST, avant tout filtrage distant : avec P1 chargé, chaque
+	sonde IPv4 est « refusée » immédiatement. Un délai dépassé n'est pas probant (filtrage
+	distant, AWS) : FAIL. En IPv6, une absence de route rend la sortie impossible mais
+	n'exerce pas P1 : INFO.
+	"""
+	text = "sortie SMTP %s:%s (%s) %s" % (host, port, addr, state)
+	if state == OPEN:
+		return ("FAIL", text + " — SORTIE POSSIBLE")
+	if state == REFUSED:
+		return ("PASS", text)
+	if family == socket.AF_INET6 and state == NO_ROUTE:
+		return ("INFO", text + " — aucune route IPv6 : sortie impossible, P1 non exercé en IPv6")
+	return ("FAIL", text + " — non probant (P1 rejette par RST : un refus immédiat est attendu)")
 
 
 def check_network(conf: dict) -> list[tuple[str, str]]:
@@ -183,14 +222,12 @@ def check_network(conf: dict) -> list[tuple[str, str]]:
 	out = []
 	for host in (conf["MAIL_HOST"], conf["WITNESS_HOST"]):
 		for port in SMTP_PORTS:
-			for addr, is_open in tcp_open(host, port):
-				out.append(
-					("FAIL" if is_open else "PASS", "sortie SMTP %s:%s (%s) %s" % (host, port, addr, "OUVERTE" if is_open else "refusée"))
-				)
+			for addr, family, state in tcp_open(host, port):
+				out.append(evaluate_smtp_probe(host, port, addr, family, state))
 	imap = tcp_open(conf["MAIL_HOST"], 993)
-	out.append(("PASS" if any(o for _a, o in imap) else "FAIL", "IMAP %s:993 joignable" % conf["MAIL_HOST"]))
+	out.append(("PASS" if any(st == OPEN for _a, _f, st in imap) else "FAIL", "IMAP %s:993 joignable" % conf["MAIL_HOST"]))
 	local = tcp_open(conf["MAILPIT_SMTP_HOST"], int(conf["MAILPIT_SMTP_PORT"]))
-	out.append(("PASS" if any(o for _a, o in local) else "FAIL", "Mailpit SMTP local joignable"))
+	out.append(("PASS" if any(st == OPEN for _a, _f, st in local) else "FAIL", "Mailpit SMTP local joignable"))
 	return out
 
 
@@ -229,18 +266,46 @@ def _systemctl(args: list[str]) -> str:
 		return ""
 
 
+def exec_argv(exec_start: str) -> list[str]:
+	"""Extrait argv d'une valeur ExecStart de `systemctl show` (« argv[]=… ; »)."""
+	if "argv[]=" in exec_start:
+		exec_start = exec_start.split("argv[]=", 1)[1].split(" ;", 1)[0]
+	try:
+		return shlex.split(exec_start)
+	except ValueError:
+		return exec_start.split()
+
+
+def option_values(argv: list[str], *names: str) -> list[str]:
+	"""Valeurs de toutes les occurrences d'une option (formes « --x v », « --x=v », « -s v »)."""
+	values = []
+	for i, arg in enumerate(argv):
+		for name in names:
+			if arg == name and i + 1 < len(argv):
+				values.append(argv[i + 1])
+			elif arg.startswith(name + "="):
+				values.append(arg.split("=", 1)[1])
+	return values
+
+
 def evaluate_mailpit_unit(show: dict, webui: dict | None, cmdlines: list[str]) -> list[tuple[str, str]]:
 	"""Fonction pure : juge l'unité, l'API et les processus Mailpit."""
 	out = []
-	exec_start = show.get("ExecStart", "")
+	argv = exec_argv(show.get("ExecStart", ""))
 	env = show.get("Environment", "")
 	env_files = show.get("EnvironmentFiles", "")
 	out.append(("PASS" if show.get("UnitFileState") == "enabled" else "FAIL", "mailpit-qa activé au démarrage"))
 	out.append(("PASS" if show.get("ActiveState") == "active" else "FAIL", "mailpit-qa actif"))
-	bad = [flag for flag in FORBIDDEN_MAILPIT_FLAGS if flag in exec_start]
+	bad = sorted({flag for flag in FORBIDDEN_MAILPIT_FLAGS for arg in argv if arg == flag or arg.startswith(flag + "=")})
 	out.append(("PASS" if not bad else "FAIL", "unité sans relais ni transfert ni webhook" + (" : " + ", ".join(bad) if bad else "")))
-	out.append(("PASS" if "--smtp 127.0.0.1:1025" in exec_start and "--listen 127.0.0.1:8025" in exec_start else "FAIL", "Mailpit n'écoute qu'en local"))
-	out.append(("PASS" if "MP_" not in env and not env_files.strip() else "FAIL", "aucune variable MP_ ni fichier d'environnement"))
+	smtp = option_values(argv, "--smtp", "-s")
+	listen = option_values(argv, "--listen", "-l")
+	pop3 = option_values(argv, "--pop3", "--pop3-auth-file")
+	local_ok = smtp == ["127.0.0.1:1025"] and listen == ["127.0.0.1:8025"] and not pop3
+	out.append(("PASS" if local_ok else "FAIL", "Mailpit n'écoute qu'en local (smtp=%s, listen=%s)" % (smtp, listen)))
+	out.append(("PASS" if "MP_" not in env and not env_files.strip() else "FAIL", "aucune variable MP_ ni fichier d'environnement dans l'unité"))
+	deny = show.get("IPAddressDeny", "")
+	out.append(("PASS" if "0.0.0.0/0" in deny and "::/0" in deny else "FAIL", "unité confinée au réseau local (IPAddressDeny=%s)" % (deny or "?")))
 	if webui is None:
 		out.append(("FAIL", "API Mailpit injoignable"))
 	else:
@@ -252,7 +317,7 @@ def evaluate_mailpit_unit(show: dict, webui: dict | None, cmdlines: list[str]) -
 
 
 def _systemctl_show(unit: str) -> dict:
-	text = _systemctl(["show", unit, "-p", "ExecStart", "-p", "Environment", "-p", "EnvironmentFiles", "-p", "ActiveState", "-p", "UnitFileState"])
+	text = _systemctl(["show", unit, "-p", "ExecStart", "-p", "Environment", "-p", "EnvironmentFiles", "-p", "ActiveState", "-p", "UnitFileState", "-p", "IPAddressDeny"])
 	show = {}
 	for line in text.splitlines():
 		if "=" in line:
@@ -325,6 +390,28 @@ def evaluate_site(site: str, conf: dict, site_conf: dict, accounts: list[dict], 
 	return out
 
 
+def gather_site(frappe) -> dict:
+	"""Lit la configuration de courriel du site connecté (lecture seule)."""
+	meta = frappe.get_meta("Email Account")
+	missing = [f for f in REQUIRED_ACCOUNT_FIELDS if not meta.has_field(f)]
+	if missing:
+		raise RuntimeError("champs Email Account introuvables (version de Frappe ?) : " + ", ".join(missing))
+	fields = ["name", *REQUIRED_ACCOUNT_FIELDS, "email_server"]
+	fields += [f for f in ("login_id", "login_id_is_different") if meta.has_field(f)]
+	accounts = frappe.get_all("Email Account", fields=fields)
+	signals = {
+		"Webhook": frappe.db.count("Webhook", {"enabled": 1}) if frappe.db.exists("DocType", "Webhook") else 0,
+		"Slack Webhook URL": frappe.db.count("Slack Webhook URL") if frappe.db.exists("DocType", "Slack Webhook URL") else 0,
+		"SMS Settings": 1 if frappe.db.get_single_value("SMS Settings", "sms_gateway_url") else 0,
+	}
+	return {
+		"site_conf": {k: frappe.conf.get(k) for k in ("mail_server", "mail_port", "mute_emails")},
+		"accounts": accounts,
+		"hooks": list(frappe.get_hooks("override_email_send") or []),
+		"signals": signals,
+	}
+
+
 def site_check(bench: str, site: str) -> dict:
 	"""Lecture seule d'un site ; s'exécute avec le Python du banc."""
 	import frappe
@@ -332,20 +419,7 @@ def site_check(bench: str, site: str) -> dict:
 	frappe.init(site=site, sites_path=os.path.join(bench, "sites"))
 	frappe.connect()
 	try:
-		fields = ["name", "service", "email_id", "login_id", "login_id_is_different", "enable_outgoing", "enable_incoming", "smtp_server", "smtp_port", "email_server"]
-		meta = frappe.get_meta("Email Account")
-		accounts = frappe.get_all("Email Account", fields=[f for f in fields if f == "name" or meta.has_field(f)])
-		signals = {
-			"Webhook": frappe.db.count("Webhook", {"enabled": 1}) if frappe.db.exists("DocType", "Webhook") else 0,
-			"Slack Webhook URL": frappe.db.count("Slack Webhook URL") if frappe.db.exists("DocType", "Slack Webhook URL") else 0,
-			"SMS Settings": 1 if frappe.db.get_single_value("SMS Settings", "sms_gateway_url") else 0,
-		}
-		return {
-			"site_conf": {k: frappe.conf.get(k) for k in ("mail_server", "mail_port", "mute_emails")},
-			"accounts": accounts,
-			"hooks": list(frappe.get_hooks("override_email_send") or []),
-			"signals": signals,
-		}
+		return gather_site(frappe)
 	finally:
 		frappe.db.rollback()
 		frappe.destroy()
@@ -417,37 +491,96 @@ def _frappe_connect(bench: str, site: str):
 	return frappe
 
 
+def imap_ssl_context() -> ssl.SSLContext:
+	"""Contexte TLS qui vérifie le certificat et le nom du serveur (revue U2, M1)."""
+	return ssl.create_default_context()
+
+
+def guard_qa_account(acc: dict, conf: dict, site: str) -> None:
+	"""Refuse tout Email Account autre que la boîte QA sur le serveur prévu, hors DEV (revue U2, M3)."""
+	login = ((acc.get("login_id") or "") if acc.get("login_id_is_different") else "") or (acc.get("email_id") or "")
+	if site != conf["DEV_SITE"]:
+		raise SystemExit("la boîte QA est réservée à %s : refus sur %s" % (conf["DEV_SITE"], site))
+	if login.strip().lower() != conf["QA_ADDRESS"] or (acc.get("email_server") or "").strip().lower() != conf["MAIL_HOST"]:
+		raise SystemExit("l'Email Account « %s » ne vise pas %s sur %s : refus" % (acc.get("name"), conf["QA_ADDRESS"], conf["MAIL_HOST"]))
+
+
+def guard_site_compliant(frappe, conf: dict, site: str) -> None:
+	"""Refuse d'agir sur un site dont la messagerie n'est pas conforme (envois hors Mailpit)."""
+	data = gather_site(frappe)
+	failures = [t for st, t in evaluate_site(site, conf, data["site_conf"], data["accounts"], data["hooks"], data["signals"]) if st == "FAIL"]
+	if failures:
+		raise SystemExit("site non conforme, refus : " + " ; ".join(failures))
+
+
+def protected_refs(refs: list[tuple[str, str]]) -> list[tuple[str, str]]:
+	"""Fonction pure : références interdites aux messages synthétiques (règle de #347)."""
+	return [(dt, dn) for dt, dn in refs if dt in PROTECTED_REFERENCE_DOCTYPES]
+
+
+def parent_refs(frappe, message_id: str) -> list[tuple[str, str]]:
+	"""Références (reference_doctype et timeline_links) de la Communication d'origine."""
+	mid = (message_id or "").strip().strip("<>")
+	name = frappe.db.get_value("Communication", {"message_id": mid}, "name") or frappe.db.get_value(
+		"Communication", {"message_id": "<%s>" % mid}, "name"
+	)
+	if not name:
+		queue = frappe.db.get_value("Email Queue", {"message_id": ["in", [mid, "<%s>" % mid]]}, ["communication", "reference_doctype", "reference_name"], as_dict=True)
+		if not queue:
+			return []
+		refs = [(queue.reference_doctype, queue.reference_name)] if queue.reference_doctype else []
+		name = queue.communication
+		if not name:
+			return refs
+	else:
+		refs = []
+	comm = frappe.get_doc("Communication", name)
+	if comm.reference_doctype:
+		refs.append((comm.reference_doctype, comm.reference_name))
+	refs += [(link.link_doctype, link.link_name) for link in comm.get("timeline_links") or []]
+	return refs
+
+
+def guard_not_protected(frappe, message_id: str) -> None:
+	bad = protected_refs(parent_refs(frappe, message_id))
+	if bad:
+		raise SystemExit(
+			"refus : le message d'origine est rattaché à %s. Une réponse synthétique y vaudrait pièce "
+			"d'accord pour le contrôle de #347 (Purchase Order, Project, Contract). Convenir d'une "
+			"exclusion avec #347 et le propriétaire." % ", ".join("%s %s" % r for r in bad)
+		)
+
+
 def cmd_reply(args) -> int:
 	conf = load_conf(args.conf)
-	msg = build_reply(fetch_original(conf, args.mailpit_id), args.body or "", args.from_addr, args.attach or [])
+	original = fetch_original(conf, args.mailpit_id)
+	msg = build_reply(original, args.body or "", args.from_addr, args.attach or [])
 	if args.dry_run:
 		print(msg.as_string())
 		return 0
-	if args.site != conf["DEV_SITE"]:
-		raise SystemExit("reply (APPEND dans la boîte QA) est réservé à %s ; utiliser inject sur un banc" % conf["DEV_SITE"])
 	frappe = _frappe_connect(args.bench, args.site)
 	try:
 		from frappe.utils.password import get_decrypted_password
-
-		acc = frappe.get_doc("Email Account", args.account)
-		login = (acc.login_id if acc.get("login_id_is_different") else "") or acc.email_id
-		if (login or "").lower() != conf["QA_ADDRESS"] or (acc.email_server or "").lower() != conf["MAIL_HOST"]:
-			raise SystemExit("l'Email Account « %s » ne vise pas %s sur %s : refus" % (args.account, conf["QA_ADDRESS"], conf["MAIL_HOST"]))
-		password = get_decrypted_password("Email Account", acc.name, "password", raise_exception=True)
 		import imaplib
 		import time
 
+		acc = frappe.get_doc("Email Account", args.account)
+		guard_qa_account(acc.as_dict(), conf, args.site)
+		guard_site_compliant(frappe, conf, args.site)
+		guard_not_protected(frappe, original.get("MessageID"))
 		check_marks(msg)
-		imap = imaplib.IMAP4_SSL(conf["MAIL_HOST"], int(acc.incoming_port or 993))
+		login = (acc.login_id if acc.get("login_id_is_different") else "") or acc.email_id
+		password = get_decrypted_password("Email Account", acc.name, "password", raise_exception=True)
+		imap = imaplib.IMAP4_SSL(conf["MAIL_HOST"], int(acc.incoming_port or 993), ssl_context=imap_ssl_context())
 		try:
 			imap.login(login, password)
 			status, data = imap.append("INBOX", "", imaplib.Time2Internaldate(time.time()), msg.as_bytes())
 		finally:
+			password = None
 			try:
 				imap.logout()
 			except Exception:
 				pass
-		del password
 		print("APPEND %s %s Message-ID=%s" % (status, (data or [b""])[0].decode("utf-8", "replace"), msg["Message-ID"]))
 		return 0 if status == "OK" else 1
 	finally:
@@ -457,14 +590,23 @@ def cmd_reply(args) -> int:
 
 def cmd_inject(args) -> int:
 	conf = load_conf(args.conf)
-	msg = build_reply(fetch_original(conf, args.mailpit_id), args.body or "", args.from_addr, args.attach or [])
+	original = fetch_original(conf, args.mailpit_id)
+	msg = build_reply(original, args.body or "", args.from_addr, args.attach or [])
 	frappe = _frappe_connect(args.bench, args.site)
 	try:
 		from frappe.email.receive import InboundMail
 
+		guard_site_compliant(frappe, conf, args.site)
+		guard_not_protected(frappe, original.get("MessageID"))
 		check_marks(msg)
 		acc = frappe.get_doc("Email Account", args.account)
 		communication = InboundMail(msg.as_bytes(), acc).process()
+		created = [(communication.reference_doctype, communication.reference_name)] + [
+			(link.link_doctype, link.link_name) for link in communication.get("timeline_links") or []
+		]
+		if protected_refs(created):
+			frappe.db.rollback()
+			raise SystemExit("refus après lecture : la Communication serait rattachée à %s (règle de #347) ; annulé" % protected_refs(created))
 		frappe.db.commit()
 		print("INJECT OK Communication=%s reference=%s/%s" % (communication.name, communication.reference_doctype, communication.reference_name))
 		return 0
@@ -473,12 +615,26 @@ def cmd_inject(args) -> int:
 
 
 def cmd_pull(args) -> int:
+	conf = load_conf(args.conf)
 	frappe = _frappe_connect(args.bench, args.site)
 	try:
 		from frappe.email.doctype.email_account.email_account import pull_from_email_account
 
+		guard_qa_account(frappe.get_doc("Email Account", args.account).as_dict(), conf, args.site)
+		guard_site_compliant(frappe, conf, args.site)
+		started = frappe.utils.now_datetime()
 		pull_from_email_account(args.account)
 		frappe.db.commit()
+		# La relève valide chaque courriel séparément : on ne peut plus annuler, on signale.
+		bad = []
+		for name in frappe.get_all("Communication", filters={"creation": [">=", started], "subject": ["like", MARK_SUBJECT + "%"]}, pluck="name"):
+			comm = frappe.get_doc("Communication", name)
+			refs = [(comm.reference_doctype, comm.reference_name)] + [(l.link_doctype, l.link_name) for l in comm.get("timeline_links") or []]
+			if protected_refs(refs):
+				bad.append("%s → %s" % (name, protected_refs(refs)))
+		if bad:
+			print("PULL FAIL message synthétique rattaché à un document protégé (règle de #347) : " + " ; ".join(bad))
+			return 1
 		print("PULL OK %s" % args.account)
 		return 0
 	finally:

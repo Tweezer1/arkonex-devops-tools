@@ -24,7 +24,7 @@ DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NFT_SRC="$DIR/nftables/arkonex-mailqa.nft"
 NFT_DIR="${MAILQA_NFT_DIR:-/etc/nftables.d}"
 NFT_CONF="${MAILQA_NFT_CONF:-/etc/nftables.conf}"
-NFT_INCLUDE='include "/etc/nftables.d/*.nft"'
+NFT_INCLUDE="include \"$NFT_DIR/*.nft\""
 UNIT_SRC="$DIR/systemd/mailpit-qa.service"
 UNIT_DEST="/etc/systemd/system/mailpit-qa.service"
 BIN_DIR="/opt/arkonex-mail-qa/bin"
@@ -73,15 +73,19 @@ firewall() {
 		fi
 	fi
 	run nft -c -f "$NFT_CONF"
-	# Chargement sans « flush ruleset » : on remplace seulement notre table.
+	# Chargement atomique, sans « flush ruleset » : une seule transaction crée la table si
+	# besoin, la vide, puis la recharge. P1 n'est jamais absent entre deux commandes.
 	if [ "$APPLY" -eq 1 ]; then
-		if nft list table inet arkonex_mailqa >/dev/null 2>&1; then
-			nft delete table inet arkonex_mailqa || die "retrait de l'ancienne table"
-		fi
+		local load
+		load="$(mktemp)" || die "mktemp"
+		printf 'table inet arkonex_mailqa\ndelete table inet arkonex_mailqa\ninclude "%s"\n' "$NFT_DIR/arkonex-mailqa.nft" > "$load"
+		nft -f "$load"
+		local rc=$?
+		rm -f "$load"
+		[ "$rc" -eq 0 ] || die "chargement atomique de la table (rc=$rc)"
 	else
-		echo "  [plan] retirer la table inet arkonex_mailqa si elle existe déjà"
+		echo "  [plan] charger atomiquement la table inet arkonex_mailqa (création, vidage, rechargement)"
 	fi
-	run nft -f "$NFT_DIR/arkonex-mailqa.nft"
 	run systemctl enable nftables.service
 	if [ "$APPLY" -eq 1 ]; then
 		nft list table inet arkonex_mailqa || die "table absente après chargement"
@@ -98,14 +102,13 @@ mailpit() {
 	run install -d -m 0755 "$BIN_DIR"
 	run install -d -m 0750 -o mailqa -g mailqa "$DATA_DIR"
 	if [ "$APPLY" -eq 1 ]; then
-		local tmp
-		tmp="$(mktemp -d)" || die "mktemp"
-		curl -fsSL -o "$tmp/mailpit.tgz" "$MAILPIT_URL" || die "téléchargement"
-		echo "$MAILPIT_SHA256  $tmp/mailpit.tgz" | sha256sum -c - || die "empreinte sha256 différente"
-		tar -xzf "$tmp/mailpit.tgz" -C "$tmp" mailpit || die "extraction"
-		install -m 0755 -o root -g root "$tmp/mailpit" "$BIN_DIR/mailpit" || die "installation du binaire"
-		rm -rf "$tmp"
-		"$BIN_DIR/mailpit" version | head -1
+		MAILQA_TMP="$(mktemp -d)" || die "mktemp"
+		trap 'rm -rf "$MAILQA_TMP"' EXIT
+		curl --proto '=https' --tlsv1.2 -fsSL -o "$MAILQA_TMP/mailpit.tgz" "$MAILPIT_URL" || die "téléchargement"
+		echo "$MAILPIT_SHA256  $MAILQA_TMP/mailpit.tgz" | sha256sum -c - || die "empreinte sha256 différente"
+		tar -xzf "$MAILQA_TMP/mailpit.tgz" -C "$MAILQA_TMP" mailpit || die "extraction"
+		install -m 0755 -o root -g root "$MAILQA_TMP/mailpit" "$BIN_DIR/mailpit" || die "installation du binaire"
+		sha256sum "$BIN_DIR/mailpit"
 	else
 		echo "  [plan] télécharger $MAILPIT_URL, vérifier sha256, installer $BIN_DIR/mailpit"
 	fi

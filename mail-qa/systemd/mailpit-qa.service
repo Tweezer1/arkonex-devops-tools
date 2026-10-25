@@ -1,8 +1,10 @@
 # mailpit-qa.service — OPEN-202 (Issue #351), protection P2 du contrat M1.
 #
 # Capteur local de courriels pour DEV et les bancs de cette machine. Aucun relais,
-# aucun transfert automatique, aucun webhook : ces options (et leurs variables MP_*)
-# sont absentes et l'environnement est vidé. `mail_qa.py verify` le contrôle.
+# aucun transfert automatique, aucun webhook : ces options sont absentes de la ligne de
+# commande, les variables MP_* correspondantes sont retirées, et le service ne peut joindre
+# aucune adresse hors de la machine (IPAddressDeny), ce qui rend « sans relais » vrai par
+# construction, quel que soit le port. `mail_qa.py verify` le contrôle.
 
 [Unit]
 Description=Mailpit — capture locale des courriels d'essai (OPEN-202)
@@ -12,10 +14,19 @@ After=network.target
 Type=simple
 User=mailqa
 Group=mailqa
-UnsetEnvironment=MP_SMTP_RELAY_CONFIG MP_SMTP_RELAY_ALL MP_SMTP_RELAY_MATCHING MP_SMTP_FORWARD_CONFIG MP_WEBHOOK_URL
+UnsetEnvironment=MP_SMTP_RELAY_HOST MP_SMTP_RELAY_PORT MP_SMTP_RELAY_CONFIG MP_SMTP_RELAY_ALL MP_SMTP_RELAY_MATCHING MP_SMTP_FORWARD_HOST MP_SMTP_FORWARD_TO MP_SMTP_FORWARD_CONFIG MP_WEBHOOK_URL
 ExecStart=/opt/arkonex-mail-qa/bin/mailpit --listen 127.0.0.1:8025 --smtp 127.0.0.1:1025 --smtp-auth-accept-any --smtp-auth-allow-insecure --smtp-disable-rdns --database /var/lib/arkonex-mail-qa/mailpit.db --max 5000 --enable-chaos --disable-version-check --block-remote-css-and-fonts --allowed-hosts 127.0.0.1:8025,localhost:8025 --label "DEV mail-qa (OPEN-202)"
 Restart=on-failure
 RestartSec=5
+IPAddressDeny=any
+IPAddressAllow=localhost
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+LockPersonality=yes
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
