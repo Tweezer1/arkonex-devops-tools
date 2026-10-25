@@ -1,7 +1,7 @@
 # mail-qa — essais de courriel sur DEV sans envoi possible (OPEN-202, mode M1)
 
 - **Lot** : `OPEN-202-DEVOPS-MAIL-QA-001`, [Issue #351](https://github.com/Tweezer1/arkonex-ops-docs/issues/351).
-- **Contrat qui fait foi** : `arkonex-ops-docs/open_202/devops_mail_qa_m1_contrat.md` (v0.2.0, ratifié le 2026-10-25).
+- **Contrat qui fait foi** : `arkonex-ops-docs/open_202/devops_mail_qa_m1_contrat.md` (v0.3.0 : M1 ratifié le 2026-10-25, tranche T2 au §13).
 
 En cas d'écart, le contrat prévaut sur ce README.
 
@@ -55,40 +55,132 @@ sudo bash mail-qa/install.sh firewall --apply
 sudo bash mail-qa/install.sh mailpit --apply
 ```
 
-## Utilisation par les agents (lot autorisé)
+## Capacité d'essai des courriels (tranche T2, contrat §13)
 
-ERPNext sur DEV : l'Email Account « QA Arkonex » sort vers `127.0.0.1:1025`, sans authentification. Il relève `qa@arkonex.ca` en IMAP sur `mail.arkonex.ca:993`. Le mot de passe est saisi par le propriétaire.
+L'outil ne connaît **aucun module ni aucun type de document** : il s'appuie sur les mécanismes natifs de Frappe (file d'envoi, Communication, réception native, fil de réponse, `append_to`, permissions du document). Un lot, présent ou futur, l'utilise sans adaptation. Seul le catalogue des parties fictives (`parties.json`, `mail_qa_parties.py`) nomme des clients, fournisseurs et contacts.
 
-Les essais automatiques des lots et les bancs injectent un courriel brut dans la réception native :
+Chaque commande existe en ligne de commande et en API Python, avec la même sémantique :
 
-```bash
-/home/frappe/frappe-bench/env/bin/python -I /home/frappe/frappe-bench/arkonex-devops-tools/mail-qa/mail_qa.py inject --site <site> --account <Email Account> --mailpit-id <id>
+```python
+import sys
+sys.path.insert(0, "/home/frappe/frappe-bench/arkonex-devops-tools/mail-qa")
+import mail_qa
 ```
 
-DEV seulement, dépôt dans la boîte QA, puis relève :
+Les commandes ci-dessous se lancent depuis `<banc>/sites`, avec le Python du banc visé :
 
 ```bash
-/home/frappe/frappe-bench/env/bin/python -I /home/frappe/frappe-bench/arkonex-devops-tools/mail-qa/mail_qa.py reply --site deverp.arkonex.ca --mailpit-id <id> --body "Texte" --attach chemin.pdf
+M="/home/frappe/frappe-bench/env/bin/python -I /home/frappe/frappe-bench/arkonex-devops-tools/mail-qa/mail_qa.py"
+B="--bench /home/frappe/frappe-bench --site deverp.arkonex.ca"
 ```
+
+Pour un banc : son propre Python et `--bench`/`--site` du banc. Seuls `deverp.arkonex.ca` et les sites `*.local` sont permis.
+
+### Règles qui valent pour tous les parcours
+
+- **Préflight imposé.** Toute commande qui écrit (boîte simulée, parties, vidage de la file, dépôt, relève, suppression dans Mailpit) refuse d'agir si `verify` n'est pas `PASS`. Le `PASS` est mis en cache 5 minutes au plus (`~/.cache/arkonex-mail-qa/verify.json`, dossier et fichier à vous seul). Un `FAIL` n'est jamais mis en cache.
+- **Marques et expéditeur.** Tout message fabriqué porte l'en-tête `X-Arkonex-Essai: synthetique` et un expéditeur `<nom>@essai.invalid`, toujours. Le préfixe `[ESSAI SYNTHÉTIQUE]` du sujet et la première ligne du corps sont exigés sauf quand la variante retire justement le sujet ou le corps. Un message fabriqué n'a jamais d'autre expéditeur, ni de `Sender` ou `Reply-To` hors `@essai.invalid`.
+- **Identifiant d'essai.** `--essai ID` (ou `mail_qa.new_essai_id()`) étiquette les adresses (`client-a+ID@essai.invalid`) et sépare les lots qui tournent en même temps. Le catalogue, lui, garde des adresses nues et stables.
+- **Aucun accord.** Un message synthétique ne vaut jamais acceptation ni approbation externe. Le rapport signale ceux dont l'expéditeur est un contact enregistré (voir « Rapport »).
+- **Limite connue.** Les services d'envoi par HTTPS ne sont pas bloqués par le réseau ; `verify` les tient par contrôle. Chaque rapport la rappelle.
+
+### Parcours : préparer
 
 ```bash
-/home/frappe/frappe-bench/env/bin/python -I /home/frappe/frappe-bench/arkonex-devops-tools/mail-qa/mail_qa.py pull --site deverp.arkonex.ca
+$M parties validate                      # catalogue : préfixe, domaine, adresses uniques, personas
+$M parties ensure $B [--company Arkonex] # crée ou complète clients, fournisseurs, contacts (idempotent)
+$M inbox ensure $B --party boite-crm --essai ID --append-to <DocType>   # boîte d'entrée simulée
+$M address client-a --essai ID           # adresse d'une partie : client-a+ID@essai.invalid
 ```
 
-`reply --dry-run` affiche le message sans rien déposer. Lancer ces commandes depuis `/home/frappe/frappe-bench/sites`.
+- `parties ensure` refuse de lier un contact fictif à un client ou fournisseur dont le nom ne commence pas par `ESSAI — `, et refuse si une adresse du catalogue appartient déjà à un contact lié à un tiers non fictif. Les groupes et le territoire du catalogue doivent exister sur le site.
+- Les intervenants internes du catalogue renvoient aux personas de Browser QA par leur nom (`parties show`) ; aucun secret n'est recopié.
+- Une boîte simulée n'a ni relève réseau ni envoi (`enable_incoming=0`, `enable_outgoing=0`, `use_imap=0`) ; `verify` reste `PASS`. `--append-to` fait créer un document à la réception d'un message qui ne répond à rien.
+- Un banc n'a pas de compte sortant d'office : en créer un vers `127.0.0.1:1025`, sans authentification (`verify` l'accepte).
 
-**Messages synthétiques** : chacun porte quatre marques, et l'outil refuse d'en produire un sans elles :
-- l'en-tête `X-Arkonex-Essai: synthetique` ;
-- le sujet préfixé par `[ESSAI SYNTHÉTIQUE]` ;
-- en première ligne : « Message d'essai fabriqué — aucune valeur d'acceptation » ;
-- un expéditeur en `@essai.invalid`.
+### Parcours : envoyer et capturer
 
-Un tel message ne vaut jamais acceptation ni approbation externe.
+L'envoi passe par ERPNext (l'action de l'essai). L'outil vide la file à la demande, puis rend ce que Mailpit a capturé :
 
-**Gardes de l'outil** :
-- `reply` et `pull` n'agissent que sur la boîte `qa@arkonex.ca` de `mail.arkonex.ca`, et seulement sur `deverp.arkonex.ca`. Le TLS IMAP vérifie le certificat.
-- `reply`, `inject` et `pull` refusent un site dont la messagerie n'est pas conforme.
-- **Règle de #347** : aucun message synthétique ne doit être rattaché à une Purchase Order, un Project ou un Contract, sinon il vaudrait pièce d'accord pour le contrôle de T1 d'OPEN-200. `reply` et `inject` refusent de répondre à un tel message. `inject` annule si la Communication créée y serait rattachée, et `pull` le signale (code 1).
+```bash
+$M flush $B                              # vide la file « Not Sent » vers Mailpit ; rend le statut de chaque courriel
+$M captured $B --essai ID                # destinataires, copie, copie cachée, pièces, Message-ID, document et Communication d'origine
+$M captured --to client-a@essai.invalid --subject "Demande" --since 2026-10-25T12:00:00Z
+```
+
+- La sourdine (`mute_emails`) est respectée ; `flush --force` passe outre (le pare-feu et Mailpit tiennent la barrière).
+- Un courriel part en un exemplaire par destinataire : la copie cachée n'apparaît que sur son propre exemplaire.
+- `captured` sans `--site` lit Mailpit seul ; avec `--site`, il ajoute l'origine.
+- `--to` cherche parmi À, Copie et Copie cachée. Un message étiqueté (une de ses adresses porte `+ID`) est retrouvé par `--essai`.
+
+### Parcours : répondre
+
+```bash
+$M reply $B --via inject --account "<boîte>" --mailpit-id <id> --from client-a@essai.invalid --body "Texte" --attach pièce.pdf
+```
+
+- `--via inject` : réception native, sans réseau (essais automatiques, bancs, DEV). Le message se rattache au document d'origine par le fil (`In-Reply-To`, qui doit nommer le site : une réponse à un courriel d'un autre site ne se rattache à rien).
+- `--via imap` : IMAP `APPEND` dans la boîte QA, **DEV seulement** ; il est suivi de `pull` (relève). Gardes M1 inchangées : boîte `qa@arkonex.ca` de `mail.arkonex.ca`, TLS vérifié, site conforme.
+- `inject` reste un alias de `reply --via inject`. `--dry-run` affiche le message sans rien déposer.
+
+### Parcours : recevoir un message indépendant
+
+```bash
+$M inbound $B --via inject --account "<boîte>" --to <boîte>@essai.invalid --from client-a@essai.invalid --subject "Demande" --attach pièce.pdf
+```
+
+Le message ne répond à rien ; avec `append_to`, la boîte crée le document. Destinataire permis : une boîte `@essai.invalid` ou `qa@arkonex.ca`.
+
+### Parcours : messages incomplets ou anormaux
+
+`--variant` (répétable) : `sans-sujet`, `sans-corps`, `sans-piece`, `expediteur-inconnu` (l'outil génère l'expéditeur), `piece-lourde` (`--heavy-bytes`, 5 Mio par défaut), `reponse-inconnue` (le fil mène à un message qui n'existe pas). Une variante inconnue est refusée. Une variante déclarée doit être réellement appliquée : `sans-corps` exige un corps vide, `sans-sujet` un sujet vide, etc.
+
+### Parcours : effets déclenchés
+
+```bash
+$M window $B --doctype "<DocType>" -- reply $B --via inject --account "<boîte>" --mailpit-id <id> --from ...
+```
+
+```python
+with mail_qa.EffectsWindow(frappe, conf, doctypes=("<DocType>",)) as window:
+    ...  # l'action
+window.report
+```
+
+Relève ce qui a été créé depuis le début : courriels en file, Communications, fichiers, ToDo, notifications, documents référencés par les nouvelles Communications, messages Mailpit nouveaux, et les DocTypes passés par l'appelant. Lecture seule. En API, l'action doit tourner dans la même connexion ou avoir été validée avant la fermeture de la fenêtre.
+
+### Parcours : droits
+
+```bash
+$M visibility $B --doctype <DocType> --docname <nom> --user a@... --persona sales_manager
+$M can-send   $B --doctype <DocType> --docname <nom> --user a@...
+```
+
+- `visibility` : ce que chacun voit dans la chronologie du document, comme l'écran la sert (`get_communications` sous l'utilisateur ; `PermissionError` = refus), et s'il peut lire les pièces jointes des Communications (permission `File`). L'isolation entre sociétés n'a pas de règle propre : elle découle des permissions du document.
+- `can-send` : droit « courriel » du document **et** tentative réelle d'envoi sous l'utilisateur, dans un point de sauvegarde annulé ; les compteurs de la file et des Communications avant/après prouvent qu'il ne reste rien (`residu`).
+
+### Rapport
+
+`--essai ID --report-dir DIR` ajoute chaque résultat au rapport `DIR/rapport-ID.json` : messages, Communications, liens, contrôles, droits, effets, **ce que l'essai établit** et **ce qu'il n'établit pas**, rappel de la limite HTTPS. Pour chaque message synthétique dont l'expéditeur est l'adresse d'un contact enregistré, il porte `signalements_347` avec `piece_d_accord_possible` et les liens du contact : un tel message peut compter comme pièce d'accord (décision #347, échange 23 ; aucun refus par type de document).
+
+Frappe crée à la réception un contact pour tout expéditeur inconnu : un message suivant du même expéditeur est alors signalé. Les liens du contact disent s'il est rattaché à une partie.
+
+### Rétention
+
+```bash
+$M purge --essai ID [--dry-run]
+```
+
+Supprime de Mailpit, par identifiants, les seuls messages dont une adresse porte exactement l'étiquette `+ID`. Pour qu'un envoi d'ERPNext soit retrouvé, adresser au moins un destinataire étiqueté (par exemple en copie). Un envoi sans étiquette se repère par la fenêtre d'effets (`mailpit_nouveaux`).
+
+### Boîte QA, DEV seulement
+
+```bash
+$M reply $B --via imap --mailpit-id <id> --body "Texte"
+$M pull  $B
+```
+
+`reply --via imap` et `pull` n'agissent que sur la boîte `qa@arkonex.ca` de `mail.arkonex.ca` et seulement sur `deverp.arkonex.ca`. Ne pas les lancer depuis un banc.
 
 ## Retour arrière (contrat §10)
 
@@ -107,11 +199,11 @@ Un tel message ne vaut jamais acceptation ni approbation externe.
 python3 -m unittest discover -s mail-qa/tests -v
 ```
 
-Ces essais n'utilisent aucun réseau extérieur. Ils couvrent :
-- les quatre marques ;
-- les règles des sites et de Mailpit ;
-- les fichiers P1 et P2 ;
-- la persistance ;
-- le mode plan d'`install.sh`.
+Ces essais n'utilisent ni réseau extérieur ni Frappe (le site est remplacé par une doublure). Ils couvrent :
+- les marques, les variantes et les adresses de parties (C1, C5, C6) ;
+- le préflight imposé, son cache et la garde de site ;
+- les règles des sites et de Mailpit, les fichiers P1 et P2, la persistance, le mode plan d'`install.sh` ;
+- le signalement des contacts, le rapport, le catalogue, les gardes de `parties ensure`, la fenêtre d'effets, les droits, la rétention ;
+- l'absence de tout nom de DocType métier dans `mail_qa.py` (seuls client, fournisseur et contact apparaissent, dans `mail_qa_parties.py`).
 
-Des mutations ont été vérifiées en rouge.
+Des mutations ont été vérifiées en rouge. L'essai d'intégration se fait sur un banc libre de tout autre lot, jamais sur DEV en écriture.

@@ -384,10 +384,11 @@ class TestGuards(unittest.TestCase):
 					mail_qa.guard_qa_account(acc, CONF, site_name)
 				self.assertIn("refus", str(ctx.exception))
 
-	def test_protected_references_of_347(self):
-		refs = [("Quotation", "Q-1"), ("Purchase Order", "PO-1"), ("Project", "P-1"), ("Contract", "C-1"), ("Lead", "L-1")]
-		self.assertEqual(mail_qa.protected_refs(refs), [("Purchase Order", "PO-1"), ("Project", "P-1"), ("Contract", "C-1")])
-		self.assertEqual(mail_qa.protected_refs([("Opportunity", "O-1")]), [])
+	def test_347_guard_is_lifted_and_replaced_by_a_signal(self):
+		# Décision #347 (échange 23) : plus de refus par type de document ; le rapport signale (C9).
+		for name in ("PROTECTED_REFERENCE_DOCTYPES", "protected_refs", "guard_not_protected"):
+			self.assertFalse(hasattr(mail_qa, name), name)
+		self.assertTrue(callable(mail_qa.agreement_signals))
 
 	def test_gather_site_fails_when_a_required_field_is_missing(self):
 		class Meta:

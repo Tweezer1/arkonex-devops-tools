@@ -1,0 +1,63 @@
+{
+	"version": 1,
+	"description": "Parties fictives cohérentes pour les essais de courriel (OPEN-202, T2, C11). Donnée, pas du code : ajouter une partie = ajouter une entrée ici. Aucun secret.",
+	"prefixe": "ESSAI — ",
+	"domaine": "essai.invalid",
+	"territoire": "Canada",
+	"societes": ["Arkonex", "Arkonex Conseil"],
+	"organisations": [
+		{
+			"societe": "Arkonex", "role": "maitre-ouvrage", "cle": "arkonex-moa-a",
+			"nom": "ESSAI — Arkonex — Maître de l'ouvrage A", "groupe": "Commercial",
+			"contacts": [
+				{"cle": "moa-a-1", "prenom": "ESSAI — Marie", "nom": "Tremblay", "adresse": "moa-a-1@essai.invalid"},
+				{"cle": "moa-a-2", "prenom": "ESSAI — Luc", "nom": "Gagnon", "adresse": "moa-a-2@essai.invalid"}
+			]
+		},
+		{
+			"societe": "Arkonex", "role": "fournisseur", "cle": "arkonex-fournisseur-f",
+			"nom": "ESSAI — Arkonex — Fournisseur F", "groupe": "Local",
+			"contacts": [
+				{"cle": "fournisseur-f-1", "prenom": "ESSAI — Nadia", "nom": "Roy", "adresse": "fournisseur-f-1@essai.invalid"}
+			]
+		},
+		{
+			"societe": "Arkonex", "role": "sous-traitant", "cle": "arkonex-sous-traitant-s",
+			"nom": "ESSAI — Arkonex — Sous-traitant S", "groupe": "Services",
+			"contacts": [
+				{"cle": "sous-traitant-s-1", "prenom": "ESSAI — Marc", "nom": "Bouchard", "adresse": "sous-traitant-s-1@essai.invalid"}
+			]
+		},
+		{
+			"societe": "Arkonex Conseil", "role": "maitre-ouvrage", "cle": "conseil-moa-c",
+			"nom": "ESSAI — Arkonex Conseil — Maître de l'ouvrage C", "groupe": "Government",
+			"contacts": [
+				{"cle": "moa-c-1", "prenom": "ESSAI — Julie", "nom": "Lavoie", "adresse": "moa-c-1@essai.invalid"},
+				{"cle": "moa-c-2", "prenom": "ESSAI — Paul", "nom": "Pelletier", "adresse": "moa-c-2@essai.invalid"}
+			]
+		},
+		{
+			"societe": "Arkonex Conseil", "role": "fournisseur", "cle": "conseil-fournisseur-g",
+			"nom": "ESSAI — Arkonex Conseil — Fournisseur G", "groupe": "Hardware",
+			"contacts": [
+				{"cle": "fournisseur-g-1", "prenom": "ESSAI — Hélène", "nom": "Fortin", "adresse": "fournisseur-g-1@essai.invalid"}
+			]
+		},
+		{
+			"societe": "Arkonex Conseil", "role": "sous-traitant", "cle": "conseil-sous-traitant-t",
+			"nom": "ESSAI — Arkonex Conseil — Sous-traitant T", "groupe": "Services",
+			"contacts": [
+				{"cle": "sous-traitant-t-1", "prenom": "ESSAI — Éric", "nom": "Gauthier", "adresse": "sous-traitant-t-1@essai.invalid"}
+			]
+		}
+	],
+	"personas_fichier": "../claude-browser-qa/personas.yaml",
+	"internes": [
+		{"role": "responsable-commercial", "persona": "sales_manager"},
+		{"role": "vendeur", "persona": "sales_user"},
+		{"role": "chef-de-projet", "persona": "projects_manager"},
+		{"role": "comptabilite", "persona": "accounts_user"},
+		{"role": "estimateur", "persona": "estimate_user"},
+		{"role": "acheteur", "persona": "market_buyer"}
+	]
+}
