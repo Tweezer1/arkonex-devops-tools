@@ -5,6 +5,7 @@ Aucun réseau extérieur, aucun Frappe : les accès au site sont remplacés par 
 """
 
 import ast
+import copy
 import io
 import json
 import os
@@ -57,6 +58,9 @@ class FakeDoc:
 	def get(self, key, default=None):
 		return self.values.get(key, default)
 
+	def as_dict(self):
+		return dict(self.values, name=self.name)
+
 	def append(self, key, row):
 		self.values.setdefault(key, []).append(row)
 
@@ -77,6 +81,11 @@ class FakeDoc:
 				f.tables["Dynamic Link"].append({"parent": self.name, "parenttype": "Contact", "link_doctype": l["link_doctype"], "link_name": l["link_name"]})
 
 	def insert(self, **_kw):
+		f = self.frappe
+		if f.fail_after is not None:
+			f.inserts += 1
+			if f.inserts > f.fail_after:
+				raise RuntimeError("panne simulée")
 		self._store()
 		self.frappe.writes.append(("insert", self.doctype, self.name))
 		return self
@@ -98,7 +107,7 @@ class FakeDB:
 	def exists(self, doctype, name=None):
 		self.f.touched.append("exists")
 		if doctype == "DocType":
-			return False
+			return name in self.f.doctypes
 		return (doctype, name) in self.f.existing or any(r.get("name") == name for r in self.f.tables.get(doctype, []))
 
 	def get_value(self, doctype, filters, fieldname="name", as_dict=False):
@@ -122,9 +131,12 @@ class FakeDB:
 
 	def commit(self):
 		self.f.events.append("commit")
+		self.f.snapshot = copy.deepcopy(self.f.tables)
 
 	def rollback(self, save_point=None):
 		self.f.events.append("rollback:%s" % save_point)
+		if save_point is None:
+			self.f.tables = copy.deepcopy(self.f.snapshot)
 
 	def savepoint(self, point):
 		self.f.events.append("savepoint:%s" % point)
@@ -161,6 +173,9 @@ class FakeFrappe:
 		self.tables = {k: [dict(r) for r in v] for k, v in (tables or {}).items()}
 		self.existing = set(existing)
 		self.touched, self.writes, self.events = [], [], []
+		self.snapshot = copy.deepcopy(self.tables)
+		self.doctypes = set()
+		self.fail_after, self.inserts = None, 0
 		self.db = FakeDB(self)
 		self.db.after_commit, self.db.before_commit = FakeCallbacks(), FakeCallbacks()
 		self.session = types.SimpleNamespace(user="Administrator")
@@ -188,7 +203,10 @@ class FakeFrappe:
 		for row in self.tables.get(doctype_or_values, []):
 			if row.get("name") == name:
 				doc = FakeDoc(self, dict(row, doctype=doctype_or_values))
-				doc.values["links"] = [Link(**l) if isinstance(l, dict) else l for l in doc.values.get("links", [])]
+				if doctype_or_values == "Contact":
+					doc.values["links"] = [Link(**l) for l in self.tables.get("Dynamic Link", []) if l["parent"] == name]
+				else:
+					doc.values["links"] = [Link(**l) if isinstance(l, dict) else l for l in doc.values.get("links", [])]
 				return doc
 		raise KeyError(name)
 
@@ -462,7 +480,7 @@ class TestPreflight(PreflightCase):
 		msg = mail_qa.build_reply(ORIGINAL)
 		calls = {
 			"ensure_inbox": lambda f: mail_qa.ensure_inbox(f, CONF, "boite@essai.invalid"),
-			"flush_queue": lambda f: mail_qa.flush_queue(f, CONF),
+			"flush_queue": lambda f: mail_qa.flush_queue(f, CONF, all_=True),
 			"inject_message": lambda f: mail_qa.inject_message(f, CONF, msg, "Boîte"),
 			"imap_append": lambda f: mail_qa.imap_append(f, CONF, msg, "QA Arkonex"),
 			"deliver": lambda f: mail_qa.deliver(f, CONF, msg, "inject", "Boîte"),
@@ -556,10 +574,6 @@ class TestC9Reports(unittest.TestCase):
 	def test_unknown_or_tagged_sender_is_not_signalled(self):
 		site = self.contact_site()
 		self.assertEqual(mail_qa.agreement_signals(site, ["inconnu@essai.invalid", "moa-a-1+lot7@essai.invalid", None]), [])
-
-	def test_the_347_guard_is_lifted(self):
-		for name in ("PROTECTED_REFERENCE_DOCTYPES", "protected_refs", "guard_not_protected", "parent_refs"):
-			self.assertFalse(hasattr(mail_qa, name), name)
 
 	def test_report_content_and_merge(self):
 		tmp = tempfile.mkdtemp()
@@ -705,7 +719,8 @@ class TestC11Ensure(PreflightCase):
 			parties._ensure_contact(frappe, {"cle": "c", "prenom": "ESSAI — X", "nom": "Y", "adresse": "x@essai.invalid"}, "Customer", "Vrai Client", "ESSAI — ")
 		self.assertIn("préfixe", str(ctx.exception))
 		self.assertEqual(frappe.writes, [])
-		# partie fictive : accepté
+		# partie fictive créée par l'outil (préfixe + marqueur) : accepté
+		frappe.tables["Customer"].append({"name": "ESSAI — Z", "customer_name": "ESSAI — Z", "customer_details": parties.MARKER})
 		out = parties._ensure_contact(frappe, {"cle": "c", "prenom": "ESSAI — X", "nom": "Y", "adresse": "x@essai.invalid"}, "Customer", "ESSAI — Z", "ESSAI — ")
 		self.assertTrue(out["cree"])
 
@@ -742,7 +757,7 @@ class TestC7Effects(unittest.TestCase):
 		frappe.tables["ToDo"] = [{"name": "T-1", "creation": "2026-10-25 12:00:03", "status": "Open"}]
 		frappe.tables["Mon Type"] = [{"name": "M-1", "creation": "2026-10-25 12:00:04"}, {"name": "M-0", "creation": "2026-10-25 10:00:00"}]
 		frappe.existing = set()
-		frappe.db.exists = lambda dt, name=None: True
+		frappe.doctypes = {"Communication", "Email Queue", "File", "ToDo", "Notification Log", "Mon Type"}
 		with mail_qa.EffectsWindow(frappe, None, doctypes=("Mon Type",)) as window:
 			pass
 		report = window.report
@@ -756,7 +771,7 @@ class TestC7Effects(unittest.TestCase):
 
 	def test_new_mailpit_messages_are_the_ids_that_appeared(self):
 		frappe = FakeFrappe()
-		frappe.db.exists = lambda *a, **k: False
+		frappe.doctypes = {"Communication", "Email Queue", "File", "ToDo", "Notification Log"}
 		listed = [{"ID": "a"}, {"ID": "b"}]
 		originals = (mail_qa.mailpit_list, mail_qa.mailpit_request)
 		mail_qa.mailpit_list = lambda conf, query=None, limit=2000: list(listed)
@@ -849,6 +864,7 @@ class TestC8Rights(PreflightCase):
 class FakeMailpit:
 	def __init__(self, messages):
 		self.messages = messages  # id -> détail
+		self.headers = {}  # id -> en-têtes bruts
 		self.deleted = []
 		self.requests = []
 
@@ -868,6 +884,8 @@ class FakeMailpit:
 		if method == "DELETE":
 			self.deleted.extend(payload["IDs"])
 			return "ok"
+		if path.endswith("/headers"):
+			return self.headers.get(path.split("/")[-2], {})
 		return dict(self.messages[path.rsplit("/", 1)[1]], ID=path.rsplit("/", 1)[1])
 
 

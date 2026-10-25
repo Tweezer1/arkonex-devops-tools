@@ -27,6 +27,10 @@ PARTY_KINDS = {
 	"fournisseur": ("Supplier", "supplier_name", "supplier_group", "Supplier Group"),
 	"sous-traitant": ("Supplier", "supplier_name", "supplier_group", "Supplier Group"),
 }
+# Marqueur posé par l'outil sur les parties qu'il crée (champ texte standard « informations »).
+# Une partie existante qui porte un nom du catalogue SANS ce marqueur n'est jamais complétée.
+MARKER = "[mail-qa OPEN-202] partie fictive d'essai créée par mail-qa ; ne pas lier à un tiers réel."
+MARKER_FIELDS = {"Customer": "customer_details", "Supplier": "supplier_details"}
 
 
 def load_catalog(path: str | None = None) -> dict:
@@ -149,11 +153,27 @@ def display_name(frappe, doctype: str, name: str) -> str:
 	return name
 
 
+def is_marked(frappe, doctype: str, name: str) -> bool:
+	"""Vrai si la partie porte le marqueur de l'outil (ou si son DocType n'a pas de champ de marqueur)."""
+	field = MARKER_FIELDS.get(doctype)
+	if not field:
+		return True
+	return MARKER in str(frappe.db.get_value(doctype, name, field) or "")
+
+
+def is_fictive(frappe, doctype: str, name: str, prefix: str) -> bool:
+	return str(display_name(frappe, doctype, name)).startswith(prefix) and is_marked(frappe, doctype, name)
+
+
 def require_fictive(frappe, doctype: str, name: str, prefix: str) -> None:
-	"""Refuse de lier un contact fictif à une partie dont le nom ne commence pas par le préfixe."""
+	"""Refuse de lier un contact fictif à une partie sans le préfixe ou sans le marqueur de l'outil."""
 	shown = display_name(frappe, doctype, name)
 	if not str(shown).startswith(prefix):
 		raise mail_qa.GuardError("%s %s : nom %r sans le préfixe %r, lien refusé" % (doctype, name, shown, prefix))
+	if not is_marked(frappe, doctype, name):
+		raise mail_qa.GuardError(
+			"%s %s porte un nom du catalogue mais pas le marqueur de l'outil : ce n'est pas une partie créée par mail-qa, lien refusé" % (doctype, name)
+		)
 
 
 def check_existing_contacts(frappe, address: str, prefix: str) -> list[dict]:
@@ -161,11 +181,12 @@ def check_existing_contacts(frappe, address: str, prefix: str) -> list[dict]:
 	found = contacts_for_address(frappe, address)
 	for contact in found:
 		for link in contact["liens"]:
-			shown = display_name(frappe, link["doctype"], link["nom"])
-			if not str(shown).startswith(prefix):
+			if not is_fictive(frappe, link["doctype"], link["nom"], prefix):
+				shown = display_name(frappe, link["doctype"], link["nom"])
 				raise mail_qa.GuardError(
-					"l'adresse %s appartient au contact %s, lié à %s %s (%r), un tiers non fictif : refus"
-					% (address, contact["contact"], link["doctype"], link["nom"], shown)
+					"l'adresse %s appartient au contact %s, lié à %s %s (%r), un tiers non fictif : refus. "
+					"À faire : changer l'adresse de cette entrée du catalogue, ou retirer le lien du contact %s vers %s %s."
+					% (address, contact["contact"], link["doctype"], link["nom"], shown, contact["contact"], link["doctype"], link["nom"])
 				)
 	return found
 
@@ -188,6 +209,13 @@ def ensure_parties(frappe, conf: dict, catalog: dict | None = None, company: str
 			raise mail_qa.GuardError("%s %r introuvable sur ce site : corriger le catalogue ou le site" % (group_doctype, org["groupe"]))
 		if doctype == "Customer" and not frappe.db.exists("Territory", catalog["territoire"]):
 			raise mail_qa.GuardError("Territory %r introuvable sur ce site" % catalog["territoire"])
+		title_field = PARTY_KINDS[org["role"]][1]
+		known = frappe.db.get_value(doctype, {title_field: org["nom"]}, "name")
+		if known and not is_marked(frappe, doctype, known):
+			raise mail_qa.GuardError(
+				"%s %s porte exactement un nom du catalogue mais pas le marqueur de l'outil : ce n'est pas une partie créée par mail-qa. "
+				"À faire : renommer ou retirer cette partie, ou changer le nom dans le catalogue." % (doctype, known)
+			)
 		for contact in org["contacts"]:
 			check_existing_contacts(frappe, contact["adresse"], prefix)
 	# 2) écriture, tout ou rien
@@ -199,6 +227,7 @@ def ensure_parties(frappe, conf: dict, catalog: dict | None = None, company: str
 			created = name is None
 			if created:
 				values = {"doctype": doctype, title_field: org["nom"], group_field: org["groupe"]}
+				values[MARKER_FIELDS[doctype]] = MARKER
 				if doctype == "Customer":
 					values.update(territory=catalog["territoire"], customer_type="Company")
 				else:

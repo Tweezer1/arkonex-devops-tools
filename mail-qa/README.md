@@ -78,7 +78,7 @@ Pour un banc : son propre Python et `--bench`/`--site` du banc. Seuls `deverp.ar
 
 ### Règles qui valent pour tous les parcours
 
-- **Préflight imposé.** Toute commande qui écrit (boîte simulée, parties, vidage de la file, dépôt, relève, suppression dans Mailpit) refuse d'agir si `verify` n'est pas `PASS`. Le `PASS` est mis en cache 5 minutes au plus (`~/.cache/arkonex-mail-qa/verify.json`, dossier et fichier à vous seul). Un `FAIL` n'est jamais mis en cache.
+- **Préflight imposé.** Toute commande qui écrit (boîte simulée, parties, vidage de la file, dépôt, relève, suppression dans Mailpit) refuse d'agir si `verify` n'est pas `PASS`. Le `PASS` est mis en cache 5 minutes au plus (`~/.cache/arkonex-mail-qa/verify.json`, dossier et fichier à vous seul). Un `FAIL` n'est jamais mis en cache. Le cache n'est pas une frontière de sécurité contre le même utilisateur : qui peut écrire dans son dossier personnel peut y poser un `PASS` ; il protège contre l'erreur, non contre le contournement délibéré. Un cache corrompu est ignoré et `verify` est relancé.
 - **Marques et expéditeur.** Tout message fabriqué porte l'en-tête `X-Arkonex-Essai: synthetique` et un expéditeur `<nom>@essai.invalid`, toujours. Le préfixe `[ESSAI SYNTHÉTIQUE]` du sujet et la première ligne du corps sont exigés sauf quand la variante retire justement le sujet ou le corps. Un message fabriqué n'a jamais d'autre expéditeur, ni de `Sender` ou `Reply-To` hors `@essai.invalid`.
 - **Identifiant d'essai.** `--essai ID` (ou `mail_qa.new_essai_id()`) étiquette les adresses (`client-a+ID@essai.invalid`) et sépare les lots qui tournent en même temps. Le catalogue, lui, garde des adresses nues et stables.
 - **Aucun accord.** Un message synthétique ne vaut jamais acceptation ni approbation externe. Le rapport signale ceux dont l'expéditeur est un contact enregistré (voir « Rapport »).
@@ -94,6 +94,7 @@ $M address client-a --essai ID           # adresse d'une partie : client-a+ID@es
 ```
 
 - `parties ensure` refuse de lier un contact fictif à un client ou fournisseur dont le nom ne commence pas par `ESSAI — `, et refuse si une adresse du catalogue appartient déjà à un contact lié à un tiers non fictif. Les groupes et le territoire du catalogue doivent exister sur le site.
+- Les parties créées par l'outil portent un marqueur dans leur champ « informations » (`customer_details`, `supplier_details`). Une partie existante qui porte un nom du catalogue sans ce marqueur n'est jamais complétée, et un contact lié à une partie sans marqueur fait refuser l'opération. `ensure` est tout ou rien : une erreur annule toutes les écritures.
 - Les intervenants internes du catalogue renvoient aux personas de Browser QA par leur nom (`parties show`) ; aucun secret n'est recopié.
 - Une boîte simulée n'a ni relève réseau ni envoi (`enable_incoming=0`, `enable_outgoing=0`, `use_imap=0`) ; `verify` reste `PASS`. `--append-to` fait créer un document à la réception d'un message qui ne répond à rien.
 - Un banc n'a pas de compte sortant d'office : en créer un vers `127.0.0.1:1025`, sans authentification (`verify` l'accepte).
@@ -103,11 +104,13 @@ $M address client-a --essai ID           # adresse d'une partie : client-a+ID@es
 L'envoi passe par ERPNext (l'action de l'essai). L'outil vide la file à la demande, puis rend ce que Mailpit a capturé :
 
 ```bash
-$M flush $B                              # vide la file « Not Sent » vers Mailpit ; rend le statut de chaque courriel
+$M flush $B --all                        # vide la file « Not Sent » vers Mailpit ; rend le statut de chaque courriel
+$M flush $B --name <file> | --since <date>   # ou seulement ce qui est à vous
 $M captured $B --essai ID                # destinataires, copie, copie cachée, pièces, Message-ID, document et Communication d'origine
 $M captured --to client-a@essai.invalid --subject "Demande" --since 2026-10-25T12:00:00Z
 ```
 
+- `flush` sans `--name`, `--since` ni `--all` est refusé : la file peut contenir les courriels d'un autre lot.
 - La sourdine (`mute_emails`) est respectée ; `flush --force` passe outre (le pare-feu et Mailpit tiennent la barrière).
 - Un courriel part en un exemplaire par destinataire : la copie cachée n'apparaît que sur son propre exemplaire.
 - `captured` sans `--site` lit Mailpit seul ; avec `--site`, il ajoute l'origine.
@@ -120,7 +123,7 @@ $M reply $B --via inject --account "<boîte>" --mailpit-id <id> --from client-a@
 ```
 
 - `--via inject` : réception native, sans réseau (essais automatiques, bancs, DEV). Le message se rattache au document d'origine par le fil (`In-Reply-To`, qui doit nommer le site : une réponse à un courriel d'un autre site ne se rattache à rien).
-- `--via imap` : IMAP `APPEND` dans la boîte QA, **DEV seulement** ; il est suivi de `pull` (relève). Gardes M1 inchangées : boîte `qa@arkonex.ca` de `mail.arkonex.ca`, TLS vérifié, site conforme.
+- `--via imap` : IMAP `APPEND` dans la boîte QA, **DEV seulement** (pièces jointes seulement sous `IMAP_ATTACH_DIR` de `mail-qa.conf`, 1 Mio au plus chacune) ; il est suivi de `pull` (relève). Gardes M1 inchangées : boîte `qa@arkonex.ca` de `mail.arkonex.ca`, TLS vérifié, site conforme.
 - `inject` reste un alias de `reply --via inject`. `--dry-run` affiche le message sans rien déposer.
 
 ### Parcours : recevoir un message indépendant
@@ -161,7 +164,7 @@ $M can-send   $B --doctype <DocType> --docname <nom> --user a@...
 
 ### Rapport
 
-`--essai ID --report-dir DIR` ajoute chaque résultat au rapport `DIR/rapport-ID.json` : messages, Communications, liens, contrôles, droits, effets, **ce que l'essai établit** et **ce qu'il n'établit pas**, rappel de la limite HTTPS. Pour chaque message synthétique dont l'expéditeur est l'adresse d'un contact enregistré, il porte `signalements_347` avec `piece_d_accord_possible` et les liens du contact : un tel message peut compter comme pièce d'accord (décision #347, échange 23 ; aucun refus par type de document).
+`--essai ID --report-dir DIR` ajoute chaque résultat au rapport `DIR/rapport-ID.json` : messages, Communications, liens, contrôles, droits, effets, **ce que l'essai établit** et **ce qu'il n'établit pas**, rappel de la limite HTTPS. Pour chaque message synthétique dont l'expéditeur, ou un destinataire (À, Cc), est l'adresse d'un contact enregistré, il porte `signalements_347` avec `piece_d_accord_possible` et les liens du contact : un tel message peut compter comme pièce d'accord (décision #347, échange 23 ; aucun refus par type de document).
 
 Frappe crée à la réception un contact pour tout expéditeur inconnu : un message suivant du même expéditeur est alors signalé. Les liens du contact disent s'il est rattaché à une partie.
 
@@ -171,7 +174,7 @@ Frappe crée à la réception un contact pour tout expéditeur inconnu : un mess
 $M purge --essai ID [--dry-run]
 ```
 
-Supprime de Mailpit, par identifiants, les seuls messages dont une adresse porte exactement l'étiquette `+ID`. Pour qu'un envoi d'ERPNext soit retrouvé, adresser au moins un destinataire étiqueté (par exemple en copie). Un envoi sans étiquette se repère par la fenêtre d'effets (`mailpit_nouveaux`).
+Supprime de Mailpit, par identifiants, les seuls messages dont l'ensemble des identifiants d'essai vaut exactement `{ID}`. Ces identifiants sont lus dans les étiquettes `+ID` de toutes les adresses et dans l'en-tête `X-Arkonex-Essai-Id` (posé sur tout message fabriqué quand un essai est donné). Un message qui porte aussi l'identifiant d'un autre essai n'est jamais supprimé, ni par l'un ni par l'autre ; `captured --essai` suit la même règle. Le parcours couvre tous les messages de Mailpit. Pour qu'un envoi d'ERPNext soit retrouvé, adresser au moins un destinataire étiqueté (par exemple en copie). Un envoi sans étiquette se repère par la fenêtre d'effets (`mailpit_nouveaux`).
 
 ### Boîte QA, DEV seulement
 

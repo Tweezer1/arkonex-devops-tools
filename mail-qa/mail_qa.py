@@ -229,9 +229,35 @@ def check_marks(msg: EmailMessage, variants=()) -> None:
 		raise MarkError("marques manquantes : " + ", ".join(missing))
 
 
+IMAP_ATTACH_MAX = 1024 * 1024
+
+
+def check_attachment_paths(paths, directory: str | None) -> None:
+	"""Pièces d'un dépôt IMAP (boîte réelle) : fichiers sous le dossier désigné, 1 Mio au plus chacun."""
+	if not paths:
+		return
+	if not directory:
+		raise ValueError("IMAP_ATTACH_DIR n'est pas déclaré dans mail-qa.conf : aucune pièce permise avec --via imap")
+	base = os.path.realpath(directory)
+	for path in paths:
+		real = os.path.realpath(path)
+		if os.path.commonpath([base, real]) != base or not os.path.isfile(real):
+			raise ValueError("pièce %r refusée : seuls les fichiers sous %s sont permis avec --via imap" % (path, base))
+		if os.path.getsize(real) > IMAP_ATTACH_MAX:
+			raise ValueError("pièce %r refusée : %d octets, 1 Mio au plus avec --via imap" % (path, os.path.getsize(real)))
+
+
+def check_imap_message(msg: EmailMessage) -> None:
+	"""Garde de dernier recours avant un dépôt IMAP : aucune pièce de plus de 1 Mio."""
+	for part in msg.iter_attachments():
+		if len(part.get_content()) > IMAP_ATTACH_MAX:
+			raise ValueError("pièce %r de plus de 1 Mio : refusée avec --via imap" % part.get_filename())
+
+
 def build_message(
 	*, from_addr: str, to_addr: str, subject: str, body: str = "", in_reply_to: str | None = None,
 	attachments=(), variants=(), essai: str | None = None, heavy_bytes: int = HEAVY_DEFAULT_BYTES,
+	attach_dir: str | None = None,
 ) -> EmailMessage:
 	"""Fabrique un message synthétique (réponse ou message indépendant). Les marques sont imposées."""
 	variants = check_variants(variants)
@@ -239,6 +265,8 @@ def build_message(
 	require_party_address(from_addr)
 	if "sans-piece" in variants and attachments:
 		raise ValueError("la variante sans-piece est incompatible avec des pièces jointes")
+	if attach_dir is not None:
+		check_attachment_paths(attachments, attach_dir)
 	if "reponse-inconnue" in variants:
 		in_reply_to = make_msgid(idstring="inconnu", domain=MARK_DOMAIN).strip("<>")
 	msg = EmailMessage(policy=policy.SMTP)
@@ -283,7 +311,7 @@ def resolve_sender(variants, from_addr: str | None, default: str | None, essai: 
 
 def build_reply(
 	original: dict, body: str = "", from_addr: str | None = None, attachments=(), variants=(),
-	essai: str | None = None, heavy_bytes: int = HEAVY_DEFAULT_BYTES,
+	essai: str | None = None, heavy_bytes: int = HEAVY_DEFAULT_BYTES, attach_dir: str | None = None,
 ) -> EmailMessage:
 	"""Construit la réponse synthétique à un message Mailpit (/api/v1/message/<id>).
 
@@ -313,20 +341,26 @@ def build_reply(
 	return build_message(
 		from_addr=sender, to_addr=to_addr, subject=subject, body=body or "Réponse d'essai.",
 		in_reply_to=message_id, attachments=attachments, variants=variants, essai=essai, heavy_bytes=heavy_bytes,
+		attach_dir=attach_dir,
 	)
 
 
 def build_inbound(
 	*, to_addr: str, from_addr: str | None = None, subject: str = "", body: str = "", attachments=(),
 	variants=(), essai: str | None = None, heavy_bytes: int = HEAVY_DEFAULT_BYTES,
+	conf: dict | None = None, attach_dir: str | None = None,
 ) -> EmailMessage:
-	"""Message entrant indépendant (C5) : il ne répond à rien (sauf la variante reponse-inconnue)."""
+	"""Message entrant indépendant (C5) : il ne répond à rien (sauf la variante reponse-inconnue).
+
+	Le destinataire est contrôlé ici (API comme CLI) : une boîte @essai.invalid ou la boîte QA.
+	"""
+	check_inbound_target(conf or load_conf(), to_addr)
 	variants = check_variants(variants)
 	sender = resolve_sender(variants, from_addr, None, essai)
 	return build_message(
 		from_addr=sender, to_addr=to_addr, subject=subject or "Message d'essai indépendant",
 		body=body or "Message entrant d'essai.", attachments=attachments, variants=variants, essai=essai,
-		heavy_bytes=heavy_bytes,
+		heavy_bytes=heavy_bytes, attach_dir=attach_dir,
 	)
 
 
@@ -612,7 +646,9 @@ def iter_sites(bench_glob: str):
 
 def check_sites(conf: dict) -> list[tuple[str, str]]:
 	out = []
+	checked = 0
 	for bench, site in iter_sites(conf["BENCH_GLOB"]):
+		checked += 1
 		python = os.path.join(bench, "env", "bin", "python")
 		if not os.path.exists(python):
 			out.append(("FAIL", "banc %s : Python introuvable, site %s non contrôlé" % (bench, site)))
@@ -630,6 +666,8 @@ def check_sites(conf: dict) -> list[tuple[str, str]]:
 			out.append(("FAIL", "banc %s, site %s : contrôle impossible (code %s)" % (bench, site, proc.returncode)))
 			continue
 		out.extend(evaluate_site(site, conf, data["site_conf"], data["accounts"], data["hooks"], data["signals"]))
+	if not checked:
+		out.append(("FAIL", "aucun site contrôlé (%s ne désigne aucun site) : un PASS vide n'est pas un PASS" % conf["BENCH_GLOB"]))
 	return out
 
 
@@ -679,7 +717,9 @@ def _read_cache(path: str, now: float, ttl: int):
 			data = json.load(fh)
 	except (OSError, ValueError):
 		return None
-	at = data.get("at") if isinstance(data, dict) else None
+	if not isinstance(data, dict):
+		return None  # cache corrompu : ignoré, verify est relancé
+	at = data.get("at")
 	if data.get("result") != "PASS" or not isinstance(at, (int, float)) or not 0 <= now - at <= ttl:
 		return None
 	return data
@@ -773,11 +813,19 @@ def _addrs(items) -> list[str]:
 	return [(i.get("Address") or "").strip().lower() for i in (items or []) if i.get("Address")]
 
 
-def summarize_message(detail: dict, created: str | None = None) -> dict:
-	"""Forme stable d'un message Mailpit : destinataires, copies, pièces, Message-ID, marques d'essai."""
+def summarize_message(detail: dict, created: str | None = None, headers: dict | None = None) -> dict:
+	"""Forme stable d'un message Mailpit : destinataires, copies, pièces, Message-ID, marques d'essai.
+
+	`essais` est l'ENSEMBLE des identifiants d'essai du message : étiquettes `+ID` de toutes ses
+	adresses et en-tête `X-Arkonex-Essai-Id` (`headers` : en-têtes bruts de Mailpit).
+	"""
 	sender = (detail.get("From") or {}).get("Address") or ""
 	to, cc, bcc, reply_to = _addrs(detail.get("To")), _addrs(detail.get("Cc")), _addrs(detail.get("Bcc")), _addrs(detail.get("ReplyTo"))
-	tags = sorted({t for a in [sender.lower(), *to, *cc, *bcc, *reply_to] for t in [address_essai_tag(a)] if t})
+	tags = {t for a in [sender.lower(), *to, *cc, *bcc, *reply_to] for t in [address_essai_tag(a)] if t}
+	for key, values in (headers or {}).items():
+		if key.lower() == MARK_ID_HEADER.lower():
+			tags |= {str(v).strip().lower() for v in (values if isinstance(values, list) else [values]) if str(v).strip()}
+	tags = sorted(tags)
 	return {
 		"id": detail.get("ID"),
 		"message_id": (detail.get("MessageID") or "").strip("<>"),
@@ -792,6 +840,21 @@ def summarize_message(detail: dict, created: str | None = None) -> dict:
 		],
 		"essais": tags,
 	}
+
+
+def message_summary(conf: dict, mailpit_id: str, created: str | None = None) -> dict:
+	"""Détail + en-têtes d'un message Mailpit, résumés."""
+	detail = mailpit_request(conf, "GET", "/api/v1/message/" + mailpit_id)
+	try:
+		headers = mailpit_request(conf, "GET", "/api/v1/message/%s/headers" % mailpit_id)
+	except OSError:
+		headers = {}
+	return summarize_message(detail, created, headers if isinstance(headers, dict) else {})
+
+
+def belongs_only_to(item: dict, essai: str) -> bool:
+	"""Vrai seulement si l'ensemble des identifiants d'essai du message vaut EXACTEMENT {essai}."""
+	return set(item["essais"]) == {essai}
 
 
 def parse_instant(value) -> datetime | None:
@@ -828,13 +891,12 @@ def captured(
 		created = parse_instant(summary.get("Created"))
 		if since_dt and created and created < since_dt:
 			continue
-		detail = mailpit_request(conf, "GET", "/api/v1/message/" + summary["ID"])
-		item = summarize_message(detail, summary.get("Created"))
+		item = message_summary(conf, summary["ID"], summary.get("Created"))
 		if to and to.strip().lower() not in item["a"] + item["cc"] + item["bcc"]:
 			continue
 		if subject and subject.lower() not in item["sujet"].lower():
 			continue
-		if essai and essai not in item["essais"]:
+		if essai and not belongs_only_to(item, essai):
 			continue
 		if frappe is not None:
 			item["origine"] = origin_of(frappe, item["message_id"])
@@ -845,10 +907,12 @@ def captured(
 
 
 def purge_essai(conf: dict, essai: str, dry_run: bool = False) -> dict:
-	"""Rétention : supprime de Mailpit les SEULS messages dont une adresse porte `+<essai>`.
+	"""Rétention : supprime de Mailpit les SEULS messages dont les identifiants d'essai valent exactement {essai}.
 
-	Désignation exacte (comparaison de l'étiquette, jamais de sous-chaîne) ; suppression par
-	identifiants. Les messages des autres essais et ceux sans étiquette ne sont jamais touchés.
+	Identifiants lus dans les étiquettes `+ID` de toutes les adresses et dans l'en-tête
+	`X-Arkonex-Essai-Id`. Un message qui porte aussi l'identifiant d'un autre essai n'est jamais
+	supprimé, ni ceux sans identifiant. Parcours complet de Mailpit (les messages fabriqués à
+	adresses nues ne se trouvent pas par recherche d'adresse) ; suppression par identifiants.
 	"""
 	essai = check_essai_id(essai)
 	if not essai:
@@ -856,9 +920,8 @@ def purge_essai(conf: dict, essai: str, dry_run: bool = False) -> dict:
 	if not dry_run:
 		require_preflight(conf)
 	ids = []
-	for summary in mailpit_list(conf, "addressed:+%s@%s" % (essai, MARK_DOMAIN)):
-		detail = mailpit_request(conf, "GET", "/api/v1/message/" + summary["ID"])
-		if essai in summarize_message(detail)["essais"]:
+	for summary in mailpit_list(conf):
+		if belongs_only_to(message_summary(conf, summary["ID"]), essai):
 			ids.append(summary["ID"])
 	if ids and not dry_run:
 		mailpit_request(conf, "DELETE", "/api/v1/messages", {"IDs": ids})
@@ -936,7 +999,7 @@ def guard_site_compliant(frappe, conf: dict, site: str) -> None:
 		raise SystemExit("site non conforme, refus : " + " ; ".join(failures))
 
 
-def agreement_signals(frappe, addresses) -> list[dict]:
+def agreement_signals(frappe, addresses, role: str = "expéditeur") -> list[dict]:
 	"""C9 / #347 : signale chaque expéditeur synthétique qui est l'adresse d'un contact enregistré.
 
 	Une Communication ne vaut pièce d'accord que si son expéditeur est un contact enregistré
@@ -948,8 +1011,15 @@ def agreement_signals(frappe, addresses) -> list[dict]:
 	for address in dict.fromkeys(a.strip().lower() for a in addresses if a):
 		contacts = parties.contacts_for_address(frappe, address)
 		if contacts:
-			out.append({"adresse": address, "contacts": contacts, "piece_d_accord_possible": True})
+			out.append({"adresse": address, "role": role, "contacts": contacts, "piece_d_accord_possible": True})
 	return out
+
+
+def message_signals(frappe, msg: EmailMessage) -> list[dict]:
+	"""Signalements #347 d'un message fabriqué : expéditeur, mais aussi À et Cc (un message envoyé à un contact enregistré compte)."""
+	out = agreement_signals(frappe, [parseaddr(str(msg["From"]))[1]], "expéditeur")
+	recipients = [a for _n, a in getaddresses([str(v) for h in ("To", "Cc") for v in (msg.get_all(h) or [])])]
+	return out + agreement_signals(frappe, recipients, "destinataire")
 
 
 # --- C2 : boîtes de réception fictives ---------------------------------------------
@@ -999,11 +1069,15 @@ def ensure_inbox(frappe, conf: dict, address: str, append_to: str | None = None,
 # --- C3 : vidage de la file --------------------------------------------------------
 
 
-def flush_queue(frappe, conf: dict, names=None, since=None, force: bool = False) -> list[dict]:
+def flush_queue(frappe, conf: dict, names=None, since=None, force: bool = False, all_: bool = False) -> list[dict]:
 	"""Envoie à la demande les courriels « Not Sent » (le planificateur reste coupé) : vers Mailpit.
 
 	Sans `force`, la sourdine (`mute_emails`) est respectée et le courriel reste « Not Sent ».
+	Refuse de vider toute la file sans choix explicite (`names`, `since` ou `all_`) : la file peut
+	contenir les courriels d'un autre lot.
 	"""
+	if not (names or since or all_):
+		raise GuardError("flush exige --name, --since ou --all : la file peut contenir les courriels d'un autre lot")
 	write_guard(frappe, conf)
 	filters = {"status": "Not Sent"}
 	if names:
@@ -1051,19 +1125,20 @@ def inject_message(frappe, conf: dict, msg: EmailMessage, account: str, variants
 		"communication": communication.name,
 		"reference": [communication.reference_doctype, communication.reference_name] if communication.reference_doctype else None,
 		"liens": [[l.link_doctype, l.link_name] for l in communication.get("timeline_links") or []],
-		"signalements": agreement_signals(frappe, [parseaddr(msg["From"])[1]]),
+		"signalements": message_signals(frappe, msg),
 	}
 
 
 def imap_append(frappe, conf: dict, msg: EmailMessage, account: str, variants=(), essai: str | None = None) -> dict:
 	"""IMAP APPEND dans l'INBOX de la boîte QA (DEV seulement). Le mot de passe n'est jamais affiché."""
 	preflight = write_guard(frappe, conf)
+	acc = frappe.get_doc("Email Account", account)
+	guard_qa_account(acc.as_dict(), conf, frappe.local.site)  # avant tout accès réseau
+	check_marks(msg, variants)
+	check_imap_message(msg)
 	from frappe.utils.password import get_decrypted_password
 	import imaplib
 
-	acc = frappe.get_doc("Email Account", account)
-	guard_qa_account(acc.as_dict(), conf, frappe.local.site)
-	check_marks(msg, variants)
 	login = (acc.login_id if acc.get("login_id_is_different") else "") or acc.email_id
 	password = get_decrypted_password("Email Account", acc.name, "password", raise_exception=True)
 	imap = imaplib.IMAP4_SSL(conf["MAIL_HOST"], int(acc.incoming_port or 993), ssl_context=imap_ssl_context())
@@ -1079,7 +1154,7 @@ def imap_append(frappe, conf: dict, msg: EmailMessage, account: str, variants=()
 	return {
 		"via": "imap", "compte": account, "message_id": (msg["Message-ID"] or "").strip("<>"), "preflight": preflight,
 		"append": status, "detail": (data or [b""])[0].decode("utf-8", "replace"),
-		"signalements": agreement_signals(frappe, [parseaddr(msg["From"])[1]]),
+		"signalements": message_signals(frappe, msg),
 	}
 
 
@@ -1102,17 +1177,22 @@ def check_inbound_target(conf: dict, to_addr: str) -> str:
 def pull_account(frappe, conf: dict, account: str) -> dict:
 	"""Relève la boîte QA (DEV seulement) et signale les messages synthétiques d'un contact enregistré."""
 	write_guard(frappe, conf)
+	guard_qa_account(frappe.get_doc("Email Account", account).as_dict(), conf, frappe.local.site)  # avant toute relève
 	from frappe.email.doctype.email_account.email_account import pull_from_email_account
 
-	guard_qa_account(frappe.get_doc("Email Account", account).as_dict(), conf, frappe.local.site)
 	started = frappe.utils.now_datetime()
 	pull_from_email_account(account)
 	frappe.db.commit()
 	names = frappe.get_all(
 		"Communication", filters={"creation": [">=", started], "sender": ["like", "%@" + MARK_DOMAIN]}, pluck="name"
 	)
-	senders = [frappe.db.get_value("Communication", n, "sender") for n in names]
-	return {"compte": account, "communications": names, "signalements": agreement_signals(frappe, senders)}
+	signals = []
+	for n in names:
+		row = frappe.db.get_value("Communication", n, ["sender", "recipients", "cc"], as_dict=True)
+		signals += agreement_signals(frappe, [row.sender], "expéditeur")
+		listed = [a for _n, a in getaddresses([row.recipients or "", row.cc or ""])]
+		signals += agreement_signals(frappe, listed, "destinataire")
+	return {"compte": account, "communications": names, "signalements": signals}
 
 
 # --- C7 : fenêtre d'effets ---------------------------------------------------------
@@ -1128,7 +1208,7 @@ _EFFECT_TABLES = (
 
 def _created_since(frappe, doctype: str, wanted, since) -> list[dict]:
 	if not frappe.db.exists("DocType", doctype):
-		return []
+		raise GuardError("DocType inconnu sur ce site : %r (une liste vide serait un faux résultat)" % doctype)
 	meta = frappe.get_meta(doctype)
 	fields = ["name", "creation"] + [f for f in wanted if meta.has_field(f)]
 	rows = frappe.get_all(doctype, filters={"creation": [">=", since]}, fields=fields, order_by="creation asc")
@@ -1422,11 +1502,12 @@ def cmd_reply(args) -> int:
 	essai = check_essai_id(args.essai)
 	variants = check_variants(args.variant)
 	original = fetch_original(conf, args.mailpit_id)
-	msg = build_reply(original, args.body or "", args.from_addr, args.attach or [], variants, essai, args.heavy_bytes)
+	via = "inject" if args.cmd == "inject" else args.via
+	attach_dir = (conf.get("IMAP_ATTACH_DIR") or "") if via == "imap" else None
+	msg = build_reply(original, args.body or "", args.from_addr, args.attach or [], variants, essai, args.heavy_bytes, attach_dir)
 	if args.dry_run:
 		print(msg.as_string())
 		return 0
-	via = "inject" if args.cmd == "inject" else args.via
 	if via is None:
 		raise ValueError("reply exige --via inject ou --via imap")
 	account = args.account or ("QA Arkonex" if via == "imap" else None)
@@ -1449,10 +1530,10 @@ def cmd_inbound(args) -> int:
 	conf = load_conf(args.conf)
 	essai = check_essai_id(args.essai)
 	variants = check_variants(args.variant)
-	check_inbound_target(conf, args.to_addr)
 	msg = build_inbound(
 		to_addr=args.to_addr, from_addr=args.from_addr, subject=args.subject or "", body=args.body or "",
-		attachments=args.attach or [], variants=variants, essai=essai, heavy_bytes=args.heavy_bytes,
+		attachments=args.attach or [], variants=variants, essai=essai, heavy_bytes=args.heavy_bytes, conf=conf,
+		attach_dir=(conf.get("IMAP_ATTACH_DIR") or "") if args.via == "imap" else None,
 	)
 	if args.dry_run:
 		print(msg.as_string())
@@ -1503,7 +1584,7 @@ def cmd_flush(args) -> int:
 	conf = load_conf(args.conf)
 
 	def work(frappe):
-		result = flush_queue(frappe, conf, args.name, args.since, args.force)
+		result = flush_queue(frappe, conf, args.name, args.since, args.force, args.all)
 		_record(args, frappe, envois=result)
 		_out(result)
 		return 1 if any(r["statut"] != "Sent" for r in result) else 0
@@ -1657,6 +1738,7 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--name", action="append")
 	p.add_argument("--since", default=None)
 	p.add_argument("--force", action="store_true", help="passe outre la sourdine (mute_emails)")
+	p.add_argument("--all", action="store_true", help="vide toute la file « Not Sent » (sans --name ni --since)")
 	report_args(p)
 	p = sub.add_parser("captured")
 	site_args(p, required=False)
