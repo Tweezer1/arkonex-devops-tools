@@ -1,0 +1,16 @@
+# arkonex-mailqa.nft — OPEN-202 (Issue #351), protection P1 du contrat M1.
+#
+# Rejette toute connexion TCP sortante vers un port SMTP (25, 465, 587, 2525), en IPv4
+# comme en IPv6, quel que soit l'utilisateur. Le trafic local (lo) n'est pas touché :
+# Mailpit écoute sur 127.0.0.1:1025.
+#
+# Chargé par /etc/nftables.conf (include), service nftables activé au démarrage.
+# Retrait : décision humaine distincte (contrat §10), jamais un retour arrière normal.
+
+table inet arkonex_mailqa {
+	chain output {
+		type filter hook output priority filter; policy accept;
+		oifname "lo" accept
+		tcp dport { 25, 465, 587, 2525 } counter reject with tcp reset
+	}
+}
