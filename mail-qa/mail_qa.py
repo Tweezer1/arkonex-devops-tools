@@ -1002,8 +1002,10 @@ def guard_site_compliant(frappe, conf: dict, site: str) -> None:
 def agreement_signals(frappe, addresses, role: str = "expéditeur") -> list[dict]:
 	"""C9 / #347 : signale chaque expéditeur synthétique qui est l'adresse d'un contact enregistré.
 
-	Une Communication ne vaut pièce d'accord que si son expéditeur est un contact enregistré
-	du client du contrat : un tel message synthétique peut donc compter comme pièce d'accord.
+	Pour #347, une Communication ne vaut pièce d'accord que si son expéditeur (CCDC 3, 5B) ou
+	son destinataire ou expéditeur (CCDC 17) est un contact enregistré du client du contrat. Un
+	message synthétique peut donc remplir cette condition : avec un client et un contact fictifs,
+	c'est l'exercice ratifié d'un accord simulé ; il ne prouve jamais un accord réel.
 	Le signalement ne bloque rien (garde levée, décision #347, échange 23).
 	"""
 	parties = _sibling("mail_qa_parties")
@@ -1393,7 +1395,7 @@ REPORT_ESTABLISHES = [
 ]
 REPORT_NOT_ESTABLISHED = [
 	"Aucun échange externe réel : mode M1, tout reste sur la machine (M2 est différé).",
-	"Aucun accord ni approbation d'un tiers : un message synthétique ne vaut jamais acceptation.",
+	"Aucun accord réel d'un tiers : un message synthétique ne prouve jamais un accord réel ; il peut seulement exercer le contrôle d'un accord simulé (client et contact fictifs, DEV et bancs).",
 	"Aucune propriété des services d'envoi par HTTPS (Frappe Mail, API tierces, webhooks, SMS, Slack) : tenus par contrôle, non par confinement.",
 	"Aucune garantie sur un banc situé hors de cette machine.",
 	"Aucun comportement du serveur de courriel réel, sauf via `--via imap` (DEV, boîte QA) quand il est listé.",
