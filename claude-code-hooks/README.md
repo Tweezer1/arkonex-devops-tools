@@ -51,6 +51,8 @@ mêmes règles. Corps de heredoc, comme bash les traite :
 | `R-PUSH-MAIN` | `git push` dont la branche cible est `main`/`master`/`version-16` (OPEN-194) (y compris `git push` sans destination depuis `main`, `--all`) | validation humaine |
 | `R-PUSH-FORCE` | `git push -f`/`--force`/`--force-with-lease`/`+refspec`/`--mirror` | validation humaine |
 | `R-DROP-SITE` | `bench … drop-site` | validation humaine |
+| `R-COHERENCE` | `gh pr create` dans une copie de travail d'application (`arkonex_estimate`, `arkonex_qit`, `arkonex_mail`, dépôt lu sur `origin`) dont le contrôle de cohérence trouve un cas nouveau de valeur codée en dur (OPEN-204, section ci-dessous) | refus |
+| `R-COHERENCE-NV` | `gh pr create -R <application>` lancé hors de la copie de cette application, ou contrôle en erreur | validation humaine |
 | `R-ERREUR` | erreur interne d'un garde-fou | validation humaine (jamais silencieux, jamais blocage total) |
 
 `aide` (`--help`) et fusion de PR (`gh pr merge`) ne sont pas contrôlées. Les garde-fous
@@ -137,6 +139,55 @@ Seule écriture : un fichier propre à la session, `~/.cache/arkonex-claude/repr
 (modifiable par `ARKONEX_REPRISE_DIR`). Il est indexé par `CLAUDE_CODE_SESSION_ID` et relu après
 une compaction. La fiche n'a aucune autorité propre : l'Issue fait foi.
 
+## Cohérence « ERPNext d'abord » : gardiens et contrôle automatique (OPEN-204)
+
+Lot : `OPEN-204-DEVOPS-ERP-COHERENCE-GUARDIANS-001`
+([Issue #359](https://github.com/Tweezer1/arkonex-ops-docs/issues/359)). But : qu'aucun lot
+ne code en dur, ni ne soumette au propriétaire comme un choix métier, ce que la configuration
+d'ERPNext tient déjà (exemple d'origine : « met-on la TPS et la TVQ ? », alors que les taxes
+sont celles des modèles de la société).
+
+**Agents** (`agents/`, déployés dans `.claude/agents/`) :
+
+| Agent | Rôle | Modèle | Outils |
+|---|---|---|---|
+| `gardien-erp` | Gardien du cadre ERP : grille « ERPNext d'abord », tri des questions (métier ou configuration), valeurs en dur et doublons de données | Opus | lecture seule |
+| `architecte-ecrans` | Écrans et leur état : contrôles natifs de Frappe, source de vérité côté serveur, droits à l'affichage, traduction, preuves visuelles | Opus | lecture seule |
+| `diagnostiqueur` | DIAG_READONLY d'un lot | Sonnet | lecture seule |
+| `codeur` | Patch dans le périmètre d'un lot autorisé | Sonnet | lecture et écriture |
+| `qa-reviewer` | Conformité du diff au périmètre et aux invariants | Sonnet | lecture, commandes de vérification |
+
+Les gardiens conseillent : ils ne posent aucun GO et ne remplacent pas le reviewer `U2`.
+Quand les appeler : `docs/CLAUDE.md`, section « ERPNext d'abord : gardiens, grille et
+contrôle ». Les trois derniers agents existaient seulement sur la machine, sans version ;
+ils sont désormais ici, corrigés (chemin du Master Spec, GO unique du lot).
+
+**Contrôle automatique** (`coherence_check.py`, liste `coherence_baseline.json`) :
+
+```bash
+/usr/bin/python3 claude-code-hooks/coherence_check.py <copie de travail de l'application> --repo arkonex_estimate
+```
+
+- Lit les textes et les nombres du code Python et JavaScript (jamais les commentaires), hors
+  fichiers d'essai, et cherche six familles : `taux-taxe` (taux distinctifs : 9,975 %,
+  14,975 %), `nom-taxe` (TPS, TVQ, TVH, GST, QST, HST, PST), `compte-societe` (« … - A »),
+  `societe` (« Arkonex »), `devise` (CAD, USD, EUR), `courriel` (sauf `@essai.invalid` et
+  `example.*`).
+- `PASS` si chaque cas est dans la liste de référence ou porte sur sa ligne la marque
+  `arkonex-coherence: <raison>` ; `FAIL` (code 1) au premier cas nouveau ; `ERREUR`
+  (code 2) si la liste est invalide (une entrée sans raison l'est).
+- Même entrée, même verdict : cas triés, aucune dépendance à l'heure ni à l'ordre des
+  fichiers.
+- Lecture seule : aucune base, aucun réseau, aucune écriture.
+- **Refus avant PR** (décisions D1 et D2 du propriétaire) : la règle `R-COHERENCE` lance
+  le contrôle à chaque `gh pr create` dans une copie d'application et refuse la création
+  sur un cas nouveau. Environ 4 s pour `arkonex_estimate`.
+- **Limites** : un motif ne voit pas tout (le gardien `gardien-erp` couvre le reste) ; la
+  copie contrôlée est la copie de travail courante, pas la branche nommée par `--head`.
+- **Liste de référence** : les cas existants au 2026-10-26, chacun avec sa raison. Pour un
+  cas voulu dans un lot futur, préférer la marque sur la ligne, visible dans la PR du lot
+  et relue en revue ; modifier la liste demande un lot sur ce dépôt.
+
 ## Installer, vérifier, revenir en arrière
 
 ```bash
@@ -144,8 +195,9 @@ une compaction. La fiche n'a aucune autorité propre : l'Issue fait foi.
 ```
 
 Sans `--apply`, le script n'écrit rien et affiche le plan. Avec `--apply` : sauvegarde
-horodatée dans `.claude/hooks-backup/`, copie des quatre scripts (mode 0755) et du skill
-`/reprendre-lot` (`.claude/skills/`), retrait des
+horodatée dans `.claude/hooks-backup/`, copie des cinq scripts (mode 0755), de la liste
+`coherence_baseline.json`, du skill `/reprendre-lot` (`.claude/skills/`) et des cinq agents
+(`.claude/agents/`, OPEN-204), retrait des
 anciens `block-forbidden-*.sh` (conservés dans la sauvegarde), remplacement de la seule
 section `hooks` de `.claude/settings.json` (les autres réglages sont conservés), puis
 contrôle après installation.
@@ -183,6 +235,13 @@ Retour arrière, restauration à l'identique (empreintes vérifiées) :
   - l'échec et le délai dépassé, jamais bloquants ;
   - la réinjection après compaction, avec une Issue changée ou inchangée, et sans lot déclaré ;
   - l'installation du skill et de l'entrée `compact`.
+- `test_coherence.py` (OPEN-204) : chaque famille trouvée dans le code et jamais dans un
+  commentaire ni un fichier d'essai ; marque `arkonex-coherence:` ; liste de référence
+  (compte d'occurrences, raison obligatoire) ; trois passages, même verdict ; règle
+  `R-COHERENCE` (copie nommée autrement que le dépôt, imbrication, `--help`, autre dépôt).
+  Installation et retour arrière des agents dans `test_session_install.py`, sans
+  `PYTHONDONTWRITEBYTECODE` (aucun `__pycache__` dans la copie déployée). Treize ruptures
+  volontaires, toutes détectées.
 - `replay_corpus.py` : rejoue les commandes réellement exécutées par les sessions (lecture
   des transcriptions locales, rien n'est exécuté) ; le détail va dans un fichier hors du
   dépôt (`--out`), les commandes pouvant contenir des données de travail.

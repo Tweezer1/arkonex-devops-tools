@@ -1,0 +1,19 @@
+{
+ "_lisez_moi": "Liste de référence du contrôle de cohérence OPEN-204 (Tweezer1/arkonex-ops-docs#359). Cas existants acceptés, chacun avec sa raison. Un cas nouveau donne FAIL. Pour un cas voulu dans un lot futur, préférer la marque « arkonex-coherence: <raison> » sur la ligne, visible dans la PR du lot. count = nombre d'occurrences acceptées dans le fichier.",
+ "repos": {
+  "arkonex_estimate": [
+   {"path": "arkonex_estimate/hooks.py", "family": "courriel", "value": "contact@arkonex.ca", "count": 1,
+    "raison": "Métadonnée d'application Frappe (app_email) exigée par hooks.py ; pas une donnée métier."},
+   {"path": "arkonex_estimate/public/js/open_073_k9_r6/composition_builder_a3.js", "family": "devise", "value": "CAD", "count": 2,
+    "raison": "Existant avant OPEN-204 : format monétaire du constructeur de compositions. La devise devrait venir de la société ou du document. Reporté à #30 (OPEN-073) le 2026-10-26."}
+  ],
+  "arkonex_qit": [
+   {"path": "arkonex_qit/hooks.py", "family": "courriel", "value": "contact@arkonex.ca", "count": 1,
+    "raison": "Métadonnée d'application Frappe (app_email) exigée par hooks.py ; pas une donnée métier."}
+  ],
+  "arkonex_mail": [
+   {"path": "arkonex_mail/hooks.py", "family": "courriel", "value": "contact@arkonex.ca", "count": 1,
+    "raison": "Métadonnée d'application Frappe (app_email) exigée par hooks.py ; pas une donnée métier."}
+  ]
+ }
+}

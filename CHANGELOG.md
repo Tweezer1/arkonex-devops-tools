@@ -1,5 +1,13 @@
 ﻿# CHANGELOG
 
+## OPEN-204 — Cohérence « ERPNext d'abord » : gardiens et contrôle automatique
+
+- `claude-code-hooks/agents/` : deux gardiens en lecture seule sur Opus, `gardien-erp` (grille « ERPNext d'abord », tri des questions métier/configuration, valeurs codées en dur) et `architecte-ecrans` (contrôles natifs de Frappe, état côté serveur, droits à l'affichage) ; les trois agents existants (`diagnostiqueur`, `codeur`, `qa-reviewer`), jusque-là non versionnés, sont repris ici et corrigés.
+- `claude-code-hooks/coherence_check.py` et `coherence_baseline.json` : contrôle en lecture seule des valeurs qu'ERPNext tient déjà (taxes, comptes, société, devise, courriels), verdict répétable, liste de référence justifiée.
+- `guard_bash.py` : règle `R-COHERENCE`, refus de `gh pr create` dans une copie d'application sur un cas nouveau.
+- `install.py` déploie aussi les agents et le contrôle, avec sauvegarde et retour arrière. Tests `test_coherence.py`.
+- Issue [#359](https://github.com/Tweezer1/arkonex-ops-docs/issues/359).
+
 ## OPEN-170 — Reprise d'un lot et suivi des décisions
 
 - `claude-code-hooks/reprendre_lot.py` et skill `/reprendre-lot` : fiche de reprise d'un lot, dérivée de son Issue (RB-83 §4.10.5), présentée avant toute action. Le script est en lecture seule sur GitHub ; il note le lot déclaré pour la session.

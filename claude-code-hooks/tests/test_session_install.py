@@ -15,6 +15,8 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 PY = "/usr/bin/python3"
+sys.path.insert(0, ROOT)
+import install  # noqa: E402
 
 LEGACY_SETTINGS = {
     "permissions": {"defaultMode": "acceptEdits"},
@@ -112,6 +114,49 @@ class Install(Bench):
         backups = os.listdir(os.path.join(self.claude, "hooks-backup"))
         self.assertEqual(len(backups), 1)
         backup = os.path.join(self.claude, "hooks-backup", backups[0])
+        r = self.install("--rollback", backup, "--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        after = {k: v for k, v in tree_state(self.claude).items()
+                 if not k.startswith("hooks-backup/")}
+        self.assertEqual(after, before)
+
+    def test_agents_and_coherence_check_installed_then_rolled_back(self):
+        # OPEN-204 : un agent local existant (version non versionnée) est sauvegardé,
+        # remplacé par la source maître, puis restauré à l'identique.
+        os.makedirs(os.path.join(self.claude, "agents"))
+        local = os.path.join(self.claude, "agents", "codeur.md")
+        with open(local, "w") as fh:
+            fh.write("---\nname: codeur\n---\nancienne version locale\n")
+        before = tree_state(self.claude)
+        r = self.install("--apply")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        for name in install.AGENTS:
+            with open(os.path.join(self.claude, "agents", name + ".md"), encoding="utf-8") as fh:
+                text = fh.read()
+            self.assertIn("name: " + name, text)
+            self.assertNotIn("{{BENCH_ROOT}}", text)
+        with open(local, encoding="utf-8") as fh:
+            self.assertIn(self.bench + "/.claude/hooks/coherence_check.py", fh.read())
+        self.assertTrue(os.access(os.path.join(self.claude, "hooks", "coherence_check.py"),
+                                  os.X_OK))
+        # La copie déployée du garde-fou trouve le contrôle et sa liste à côté d'elle.
+        app = os.path.join(self.tmp, "wt-app")
+        subprocess.run(["git", "init", "-q", app], check=True)
+        git("remote", "add", "origin", "https://github.com/Tweezer1/arkonex_qit.git", cwd=app)
+        os.makedirs(os.path.join(app, "arkonex_qit"))
+        with open(os.path.join(app, "arkonex_qit", "x.py"), "w") as fh:
+            fh.write('CUR = "CAD"\n')
+        call = json.dumps({"tool_input": {"command": "gh pr create --fill"}, "cwd": app})
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
+        out = subprocess.run([os.path.join(self.claude, "hooks", "guard_bash.py")], input=call,
+                             capture_output=True, text=True, timeout=60, env=env).stdout
+        self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "deny")
+        # L'import du contrôle ne laisse aucun __pycache__ dans la copie déployée (CI, #27).
+        self.assertFalse(os.path.exists(os.path.join(self.claude, "hooks", "__pycache__")))
+        # Un dossier laissé dans hooks/ (autre import) ne fait pas échouer le retour arrière.
+        os.makedirs(os.path.join(self.claude, "hooks", "__pycache__"))
+        backup = os.path.join(self.claude, "hooks-backup",
+                              os.listdir(os.path.join(self.claude, "hooks-backup"))[0])
         r = self.install("--rollback", backup, "--apply")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         after = {k: v for k, v in tree_state(self.claude).items()
