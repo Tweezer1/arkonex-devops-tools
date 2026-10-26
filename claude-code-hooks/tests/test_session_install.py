@@ -147,9 +147,14 @@ class Install(Bench):
         with open(os.path.join(app, "arkonex_qit", "x.py"), "w") as fh:
             fh.write('CUR = "CAD"\n')
         call = json.dumps({"tool_input": {"command": "gh pr create --fill"}, "cwd": app})
+        env = {k: v for k, v in os.environ.items() if k != "PYTHONDONTWRITEBYTECODE"}
         out = subprocess.run([os.path.join(self.claude, "hooks", "guard_bash.py")], input=call,
-                             capture_output=True, text=True, timeout=60).stdout
+                             capture_output=True, text=True, timeout=60, env=env).stdout
         self.assertEqual(json.loads(out)["hookSpecificOutput"]["permissionDecision"], "deny")
+        # L'import du contrôle ne laisse aucun __pycache__ dans la copie déployée (CI, #27).
+        self.assertFalse(os.path.exists(os.path.join(self.claude, "hooks", "__pycache__")))
+        # Un dossier laissé dans hooks/ (autre import) ne fait pas échouer le retour arrière.
+        os.makedirs(os.path.join(self.claude, "hooks", "__pycache__"))
         backup = os.path.join(self.claude, "hooks-backup",
                               os.listdir(os.path.join(self.claude, "hooks-backup"))[0])
         r = self.install("--rollback", backup, "--apply")

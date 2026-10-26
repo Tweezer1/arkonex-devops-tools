@@ -231,7 +231,9 @@ def rollback(bench_root, backup, apply):
     with open(os.path.join(backup, "manifest.json"), encoding="utf-8") as fh:
         manifest = json.load(fh)
     current = sorted(os.listdir(hooks_dir)) if os.path.isdir(hooks_dir) else []
-    to_remove = [n for n in current if n not in manifest["hooks"]]
+    # Fichiers seulement : un dossier (__pycache__ laissé par un import) reste en place.
+    to_remove = [n for n in current if n not in manifest["hooks"]
+                 and os.path.isfile(os.path.join(hooks_dir, n))]
     # Sauvegardes antérieures à OPEN-170 : pas de clé « skills », donc aucun skill à garder.
     saved_skills = manifest.get("skills", {})
     skills_remove = [n for n in SKILLS

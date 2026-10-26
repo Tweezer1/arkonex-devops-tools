@@ -494,6 +494,7 @@ def rule_pr_create(args, ctx, v):
         return
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        sys.dont_write_bytecode = True   # aucun __pycache__ dans .claude/hooks/
         import coherence_check
         result = coherence_check.evaluate(top, repo=local)
     except Exception as exc:  # jamais silencieux
