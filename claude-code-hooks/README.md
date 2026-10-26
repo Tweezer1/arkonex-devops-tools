@@ -239,7 +239,8 @@ Retour arrière, restauration à l'identique (empreintes vérifiées) :
   commentaire ni un fichier d'essai ; marque `arkonex-coherence:` ; liste de référence
   (compte d'occurrences, raison obligatoire) ; trois passages, même verdict ; règle
   `R-COHERENCE` (copie nommée autrement que le dépôt, imbrication, `--help`, autre dépôt).
-  Installation et retour arrière des agents dans `test_session_install.py`. Onze ruptures
+  Installation et retour arrière des agents dans `test_session_install.py`, sans
+  `PYTHONDONTWRITEBYTECODE` (aucun `__pycache__` dans la copie déployée). Treize ruptures
   volontaires, toutes détectées.
 - `replay_corpus.py` : rejoue les commandes réellement exécutées par les sessions (lecture
   des transcriptions locales, rien n'est exécuté) ; le détail va dans un fichier hors du
