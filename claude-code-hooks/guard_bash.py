@@ -18,6 +18,10 @@ ne déclenchent rien. Les commandes imbriquées (bash -c, sh -c, eval, sudo, $(.
 
 Limite assumée : protège contre l'erreur, pas contre un contournement délibéré
 (commande masquée dans une variable, un script intermédiaire, un encodage…).
+
+OPEN-204 (Issue #359) : avant `gh pr create` dans un dépôt d'application Arkonex, le
+contrôle de cohérence « ERPNext d'abord » (coherence_check.py) est lancé sur la copie de
+travail ; un cas nouveau de valeur codée en dur refuse la création de la PR.
 """
 
 import json
@@ -82,6 +86,7 @@ WRAPPERS = {
 }
 SKIP_WHOLE = {"for", "case", "select", "function", "fi", "done", "esac", "[[", "]]", "[",
               "test", "echo", "printf", "true", "false", ":"}
+APP_REPOS = {"arkonex_estimate", "arkonex_qit", "arkonex_mail"}   # OPEN-204
 PROTECTED_BRANCHES = {"main", "master", "version-16"}  # OPEN-194 : version-16 = intégration des apps
 INFO_FLAGS = {"--version", "-V", "--help", "-?"}
 SEP_CHARS = set(";&|()\n")
@@ -109,6 +114,11 @@ MSG = {
                    "(CLAUDE.md).",
     "R-PUSH-FORCE": "Push forcé : validation humaine requise.",
     "R-DROP-SITE": "bench drop-site : validation humaine requise.",
+    "R-COHERENCE": "Création de PR refusée : le contrôle de cohérence ERPNext d'abord "
+                   "(OPEN-204) trouve {n} cas nouveau(x) de valeur codée en dur dans {repo}. "
+                   "{detail}",
+    "R-COHERENCE-NV": "Création de PR : contrôle de cohérence ERPNext d'abord (OPEN-204) "
+                      "non vérifiable ({why}) : validation humaine.",
 }
 
 
@@ -452,6 +462,55 @@ def rule_git(args, ctx, v):
             v.add("ask", "R-PUSH-MAIN", branch=t)
 
 
+def git_out(directory, *args):
+    try:
+        r = subprocess.run(["git", "-C", directory] + list(args), capture_output=True,
+                           text=True, timeout=3, env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"))
+        return r.stdout.strip() if r.returncode == 0 else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def repo_from_url(url):
+    name = re.split(r"[/:]", (url or "").rstrip("/"))[-1]
+    return name[:-4] if name.endswith(".git") else name
+
+
+def rule_pr_create(args, ctx, v):
+    """OPEN-204 : contrôle de cohérence avant la création d'une PR d'application."""
+    named = None
+    for k, a in enumerate(args):
+        if a in ("-R", "--repo") and k + 1 < len(args):
+            named = repo_from_url(args[k + 1])
+        elif a.startswith("--repo="):
+            named = repo_from_url(a.split("=", 1)[1])
+    top = git_out(ctx.cwd, "rev-parse", "--show-toplevel") if ctx.cwd else None
+    local = repo_from_url(git_out(top, "remote", "get-url", "origin")) if top else None
+    if local not in APP_REPOS and named not in APP_REPOS:
+        return
+    if named and named != local:
+        v.add("ask", "R-COHERENCE-NV", why="la PR vise {}, la copie de travail courante "
+                                           "n'en est pas une".format(named))
+        return
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import coherence_check
+        result = coherence_check.evaluate(top, repo=local)
+    except Exception as exc:  # jamais silencieux
+        v.add("ask", "R-COHERENCE-NV", why="erreur du contrôle : {}".format(type(exc).__name__))
+        return
+    if result["new"]:
+        shown = result["new"][:5]
+        detail = " ; ".join("{}:{} [{}] « {} »".format(c["path"], c["line"], c["family"],
+                                                       c["value"]) for c in shown)
+        if len(result["new"]) > len(shown):
+            detail += " ; …"
+        detail += (". Lancer coherence_check.py {} pour le détail ; corriger en lisant la "
+                   "configuration d'ERPNext, ou marquer la ligne « arkonex-coherence: "
+                   "<raison> » si la valeur est voulue.".format(top))
+        v.add("deny", "R-COHERENCE", n=len(result["new"]), repo=local, detail=detail)
+
+
 def rule_bench(args, ctx, v):
     if "--help" in args:                               # simple affichage de l'aide
         return
@@ -594,6 +653,9 @@ def analyze_simple(cmd, ctx, v, depth):
                 rule_code_host(args[k + 1], v)
     if word == "bench":
         rule_bench(args, ctx, v)
+    if word == "gh" and args[:2] == ["pr", "create"] \
+            and not any(a in INFO_FLAGS for a in args):
+        rule_pr_create(args, ctx, v)
     if word in SHELLS:
         for k, a in enumerate(args):
             if re.fullmatch(r"-[A-Za-z]*c[A-Za-z]*", a) and k + 1 < len(args):
