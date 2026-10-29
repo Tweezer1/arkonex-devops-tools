@@ -299,8 +299,10 @@ valide pour un 3e persona fictif sans toucher un seul fichier commun.
 | `provision-system-identity.sh` | provisioning idempotent utilisateur/groupe (`browserqa-refresh`/`browserqa-storage`) — PASS/no-op si conforme, **STOP si divergence réelle** | testé (contre de vrais comptes système existants, chemins PASS et STOP prouvés) |
 | `deploy-controlled-copy.sh` | mirroir déterministe (`rsync -a --delete`) + `npm ci` vers la copie contrôlée | testé (anti-fantôme, idempotence, version pinnée réellement installée) |
 | `credentials-configure.sh` | **seul** outil de provisioning des credentials — prompt TTY masqué, jamais d'argv/log/écho du mot de passe, vérifie sans relire le secret | testé (mode test, valeur fictive uniquement) |
-| `bootstrap-browser-qa.sh` | orchestrateur idempotent (`dns`/`provision-identity`/`deploy`/`generate-config`/`browser-install`/`systemd-install`/`sudoers-install`/`all`), **plan par défaut, `--apply` explicite requis** ; `systemd-install` exige un `restart` inconditionnel, pas seulement `enable --now` | installé et prouvé en runtime (2026-09-12) |
+| `bootstrap-browser-qa.sh` | orchestrateur idempotent (`dns`/`provision-identity`/`deploy`/`lazy-cache`/`generate-config`/`browser-install`/`systemd-install`/`sudoers-install`/`all`), **plan par défaut, `--apply` explicite requis** ; `systemd-install` exige un `restart` inconditionnel, pas seulement `enable --now` | installé et prouvé en runtime (2026-09-12) |
 | `verify-browser-qa.sh` | vérificateur read-only, ne corrige jamais | non exécuté contre l'instance réelle en Phase A |
+| `lazy-mcp-proxy.py` | OPEN-209 : passerelle de chaque persona dans `.mcp.json` ; répond depuis un cache et ne lance le vrai serveur qu'à la première action | essayée (faux serveur, T51-T53 ; vrai serveur, 2026-10-29) |
+| `check-browser-residue.py` | OPEN-209 : contrôle de fin de campagne, en lecture seule ; `RESIDUE=PASS/FAIL` pour la session qui l'exécute, `--all` pour toutes | essayé (FAIL navigateur ouvert, PASS après `browser_close`, 2026-10-29) |
 | `prepare-persona.sh` | point d'entrée contrôlé pour une session Claude Code — vérifie, demande un renouvellement borné seulement si nécessaire, revérifie | installé et prouvé en runtime (2026-09-12) |
 | `provision-sudoers.sh` | génère + valide (`visudo -c`) la règle sudo minimale par persona activée, STOP si divergence | installé et prouvé en runtime (2026-09-12) |
 | `tests/canary-timer-recurrence.sh` | outil manuel root, temporaire, jamais dans `all` — preuve de récurrence par cadence accélérée puis restauration automatique | exécuté avec succès (2026-09-12) |
@@ -439,6 +441,52 @@ uniquement sur succès) — un `EXPIRED`/`FAIL` de `prepare-persona.sh` laisse d
 précédent intact, jamais pire qu'avant l'appel.
 
 `verify-browser-qa.sh` reste strictement read-only et distinct de ce mécanisme.
+
+## Chargement à la demande et fermeture des navigateurs (OPEN-209, #369)
+
+**Pourquoi.** Chaque session Claude Code ouverte sur le bench lance au démarrage tous les
+serveurs de `.mcp.json`. Avec un serveur par persona, une session tenait environ 2 Go
+(npm + sh + node, environ 93 Mo par persona, mesuré le 2026-10-29), même sans jamais
+ouvrir de navigateur. Playwright MCP `0.0.80` ne ferme rien sur inactivité et n'a pas de
+limite de concurrence. Claude Code ne permet pas d'activer un serveur du projet pour une
+seule session : un choix fait par `/mcp` est enregistré pour tout le projet, donc pour
+toutes les sessions ouvertes.
+
+**Chargement à la demande.** Par défaut, `generate-mcp-config.py` fait passer chaque
+entrée par `lazy-mcp-proxy.py`, depuis la copie déployée. La passerelle répond à
+`initialize`, `tools/list` et `ping` à partir d'un cache, et ne lance le vrai serveur
+(puis le navigateur) qu'à la première action. Les noms de serveurs et d'outils ne
+changent pas. Au repos, elle occupe environ 10 Mo par persona.
+- Cache : `lazy-cache/playwright-mcp.json` dans la copie déployée, construit par
+  `bootstrap-browser-qa.sh lazy-cache --apply`. Celui-ci lance une fois le vrai serveur
+  pinné, pour chaque version de protocole que Claude Code peut demander. Le cache est
+  conservé d'un redéploiement à l'autre. Il est lié aux arguments exacts du serveur,
+  hors `--storage-state` : un changement de version ou d'option le rend caduc.
+- Sans cache utilisable (absent, caduc, version de protocole inconnue), la passerelle
+  lance aussitôt le vrai serveur et transmet tout tel quel, comme avant OPEN-209.
+  `verify-browser-qa.sh` affiche alors `LAZY_PROXY=FAIL`.
+- Fin de session : la passerelle ferme l'entrée du vrai serveur, ce qui ferme son
+  navigateur. Essayé le 2026-10-29 dans trois cas : fermeture normale, fin brutale de la
+  session, passerelle tuée. Aucun navigateur ne restait après quelques secondes.
+- Ordre après une modification : `deploy --apply`, puis `lazy-cache --apply`, puis
+  `generate-config --apply`. Les nouvelles sessions prennent la nouvelle configuration ;
+  les sessions déjà ouvertes gardent l'ancienne.
+- **Retour arrière** : `generate-config --apply --direct` régénère des entrées `npx`
+  directes, identiques au fichier d'avant OPEN-209. `verify-browser-qa.sh` l'accepte
+  (`ACTIVE_CONFIG=PASS (direct launch…)`).
+
+**Fermeture et contrôle en fin de campagne.** La règle est dans `CLAUDE.md` (section
+Browser QA) :
+1. `browser_close` sur chaque persona utilisée, y compris après une erreur ou une
+   interruption ;
+2. `python3 /opt/arkonex-browser-qa/claude-browser-qa/check-browser-residue.py` ;
+   `RESIDUE=PASS` fait partie des preuves de la campagne.
+
+Le contrôle attend au plus 30 s (`--wait`) que les navigateurs finissent de se fermer.
+Un processus sans session (`ORPHANS=WARN`) est signalé sans faire échouer la campagne :
+il s'arrête normalement seul en moins d'une minute. `--all` liste toutes les sessions,
+leurs personas chargées et leurs navigateurs, sans échec. Le contrôle ne ferme et
+n'interrompt jamais rien.
 
 ## Ce que ce répertoire ne fait jamais
 

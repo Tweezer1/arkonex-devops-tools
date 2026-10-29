@@ -38,6 +38,15 @@ MCP_PACKAGE_PINNED_VERSION = "0.0.80"  # OPEN-125 D5/D9 contract: never "@latest
 # DIFFERENT, unrelated download (canary-prep correction 2, runtime discovery).
 DEFAULT_PLAYWRIGHT_BROWSERS_PATH = "/opt/arkonex-browser-qa/browsers"
 
+# OPEN-209 (#369) : chaque session Claude Code lance au démarrage tous les serveurs de
+# .mcp.json. Par défaut, chaque entrée passe donc par lazy-mcp-proxy.py, de la copie
+# déployée : la passerelle (~10 Mo) annonce les outils depuis un cache et ne lance le
+# vrai serveur (~93 Mo, puis le navigateur) qu'à la première action. --direct rétablit
+# le lancement direct (retour arrière).
+DEFAULT_DEPLOY_DIR = "/opt/arkonex-browser-qa/claude-browser-qa"
+LAZY_PROXY_FILE = "lazy-mcp-proxy.py"
+LAZY_CACHE_FILE = "lazy-cache/playwright-mcp.json"
+
 REQUIRED_FIELDS = (
     "login_user_id",
     "credentials_file",
@@ -113,8 +122,12 @@ def _validate_persona(name: str, entry: dict) -> list[str]:
 
 
 def build_mcp_config(
-    personas: dict, storage_state_dir: str, browsers_path: str = DEFAULT_PLAYWRIGHT_BROWSERS_PATH
+    personas: dict,
+    storage_state_dir: str,
+    browsers_path: str = DEFAULT_PLAYWRIGHT_BROWSERS_PATH,
+    deploy_dir: str | None = DEFAULT_DEPLOY_DIR,
 ) -> dict:
+    """deploy_dir=None: direct launch (npx); otherwise through the deployed lazy proxy."""
     errors: list[str] = []
     enabled_names: list[str] = []
 
@@ -160,12 +173,19 @@ def build_mcp_config(
     for name in sorted(enabled_names):
         entry = personas[name]
         state_path = os.path.join(storage_state_dir, entry["storage_state_file"])
+        real_args = [*COMMON_ARGS, f"--storage-state={state_path}"]
+        if deploy_dir is None:
+            command, args = "npx", real_args
+        else:
+            command = "python3"
+            args = [
+                os.path.join(deploy_dir, LAZY_PROXY_FILE),
+                "--cache", os.path.join(deploy_dir, LAZY_CACHE_FILE),
+                "--", "npx", *real_args,
+            ]
         servers[entry["mcp_server_name"]] = {
-            "command": "npx",
-            "args": [
-                *COMMON_ARGS,
-                f"--storage-state={state_path}",
-            ],
+            "command": command,
+            "args": args,
             "env": {"PLAYWRIGHT_BROWSERS_PATH": browsers_path},
         }
 
@@ -182,11 +202,24 @@ def main(argv=None) -> int:
         default=DEFAULT_PLAYWRIGHT_BROWSERS_PATH,
         help="shared PLAYWRIGHT_BROWSERS_PATH set on every generated server entry",
     )
+    parser.add_argument(
+        "--deploy-dir",
+        default=os.environ.get("BROWSER_QA_DEPLOY_TARGET", DEFAULT_DEPLOY_DIR),
+        help="deployed controlled copy holding lazy-mcp-proxy.py and its cache",
+    )
+    parser.add_argument(
+        "--direct",
+        action="store_true",
+        help="launch each server directly with npx, without the lazy proxy (rollback)",
+    )
     args = parser.parse_args(argv)
 
     try:
         personas = load_personas(args.personas)
-        config = build_mcp_config(personas, args.storage_state_dir, args.browsers_path)
+        config = build_mcp_config(
+            personas, args.storage_state_dir, args.browsers_path,
+            None if args.direct else args.deploy_dir,
+        )
     except (ValueError, OSError) as exc:
         print(f"generate-mcp-config: {exc}", file=sys.stderr)
         return 1
