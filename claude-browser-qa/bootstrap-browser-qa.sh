@@ -11,11 +11,12 @@
 #   dns                --apply   ensure "127.0.0.1 deverp.arkonex.ca" in /etc/hosts (target file overridable via --hosts-file, for tests)
 #   provision-identity --apply   thin wrapper around provision-system-identity.sh (user/group/membership, PASS/no-op if conformant, STOP on real divergence)
 #   deploy             --apply   thin wrapper around deploy-controlled-copy.sh --target $DEPLOY_TARGET (ghost-free rsync mirror + npm ci)
-#   generate-config    --apply   run generate-mcp-config.py, then atomically activate the result at --target (defaults to $CLAUDE_BENCH_ROOT/.mcp.json)
+#   lazy-cache         --apply   OPEN-209: run the real pinned MCP server once from $DEPLOY_TARGET and record its initialize/tools answers for lazy-mcp-proxy.py
+#   generate-config    --apply   run generate-mcp-config.py, then atomically activate the result at --target (defaults to $CLAUDE_BENCH_ROOT/.mcp.json); --direct = without the lazy proxy (rollback)
 #   browser-install    --apply   `npx playwright install chromium` from $DEPLOY_TARGET/auth, into a shared PLAYWRIGHT_BROWSERS_PATH (runtime-proven command; NOT `@playwright/mcp install-browser chrome-for-testing`, a different, unrelated channel)
 #   systemd-install    --apply   copy auth/browser-qa-refresh@.{service,timer} from $DEPLOY_TARGET into /etc/systemd/system/, daemon-reload, enable+start one timer instance per persona.enabled==true
 #   sudoers-install    --apply   thin wrapper around provision-sudoers.sh (scoped NOPASSWD rule letting frappe trigger an on-demand renewal via prepare-persona.sh, one rule per persona.enabled==true, PASS/no-op if identical, STOP on divergence)
-#   all                --apply   dns + provision-identity + deploy + generate-config + systemd-install, in that order (never browser-install, never sudoers-install -- both remain separate, explicit gates: a real ~100MB download and a sudo privilege grant should never be an implicit side effect of "all")
+#   all                --apply   dns + provision-identity + deploy + lazy-cache + generate-config + systemd-install, in that order (never browser-install, never sudoers-install -- both remain separate, explicit gates: a real ~100MB download and a sudo privilege grant should never be an implicit side effect of "all")
 #
 # NONE of these sub-commands were invoked with --apply during OPEN-125 Phase A. Phase A
 # only exercises the non-destructive halves of `dns` (idempotency-check function, against
@@ -125,6 +126,7 @@ cmd_generate_config() {
     local storage_state_dir="/var/lib/arkonex-browser-qa/storage-states"
     local target="${CLAUDE_BENCH_ROOT:-/home/frappe/frappe-bench}/.mcp.json"
     local browsers_path="$DEFAULT_PLAYWRIGHT_BROWSERS_PATH"
+    local launch_args=()
 
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -132,6 +134,7 @@ cmd_generate_config() {
             --storage-state-dir) storage_state_dir="$2"; shift 2 ;;
             --target) target="$2"; shift 2 ;;
             --browsers-path) browsers_path="$2"; shift 2 ;;
+            --direct) launch_args=(--direct); shift ;;
             *) echo "generate-config: unknown argument $1" >&2; return 2 ;;
         esac
     done
@@ -143,6 +146,7 @@ cmd_generate_config() {
             --personas "$PERSONAS_YAML" \
             --storage-state-dir "$storage_state_dir" \
             --browsers-path "$browsers_path" \
+            --deploy-dir "$DEPLOY_TARGET" "${launch_args[@]}" \
             --output "$candidate"; then
         log "generate-config: generation failed, 0 file touched at target"
         rm -f "$candidate"
@@ -162,6 +166,7 @@ cmd_generate_config() {
         log "generate-config: backed up ${target} -> ${backup}"
     fi
 
+    [[ ${#launch_args[@]} -gt 0 ]] || lazy_cache_warn "$candidate"
     mv -f "$candidate" "$target"
     # mktemp creates the candidate at mode 0600 owned by whoever ran this command, and mv
     # preserves that mode/owner verbatim -- if this command is invoked via sudo (a
@@ -322,6 +327,76 @@ cmd_systemd_install() {
 }
 
 # ---------------------------------------------------------------------------
+# lazy-cache (OPEN-209, Issue #369)
+# ---------------------------------------------------------------------------
+# Prints "<command> <args...>" (NUL-separated) of the first server of a generated config,
+# stripped of the proxy prefix: the real pinned command the cache must describe.
+first_real_command() {
+    python3 - "$1" <<'PY'
+import json, sys
+servers = json.load(open(sys.argv[1]))["mcpServers"]
+entry = servers[sorted(servers)[0]]
+argv = [entry["command"], *entry["args"]]
+if "--" in argv:
+    argv = argv[argv.index("--") + 1:]
+sys.stdout.write("\0".join(argv))
+PY
+}
+
+# Exit 0 when the proxy is deployed and its cache matches the real command of $1.
+lazy_cache_check() {
+    local config="$1" real=()
+    [[ -f "${DEPLOY_TARGET}/lazy-mcp-proxy.py" ]] || return 1
+    mapfile -d '' real < <(first_real_command "$config")
+    python3 "${DEPLOY_TARGET}/lazy-mcp-proxy.py" \
+        --check-cache "${DEPLOY_TARGET}/lazy-cache/playwright-mcp.json" -- "${real[@]}"
+}
+
+# Warn (never block: tests and plan mode activate into temp targets) when the proxy or
+# its cache is not ready; verify-browser-qa.sh reports LAZY_PROXY=FAIL until fixed.
+lazy_cache_warn() {
+    lazy_cache_check "$1" >/dev/null 2>&1 && return 0
+    log "generate-config: WARNING -- ${DEPLOY_TARGET}/lazy-mcp-proxy.py or its cache is not ready;"
+    log "generate-config: WARNING -- run 'deploy --apply' then 'lazy-cache --apply'"
+}
+
+cmd_lazy_cache() {
+    local apply=0
+    local storage_state_dir="/var/lib/arkonex-browser-qa/storage-states"
+    local browsers_path="$DEFAULT_PLAYWRIGHT_BROWSERS_PATH"
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --apply) apply=1; shift ;;
+            --storage-state-dir) storage_state_dir="$2"; shift 2 ;;
+            --browsers-path) browsers_path="$2"; shift 2 ;;
+            *) echo "lazy-cache: unknown argument $1" >&2; return 2 ;;
+        esac
+    done
+
+    local candidate real=()
+    candidate="$(mktemp)"
+    python3 "${SCRIPT_DIR}/generate-mcp-config.py" --personas "$PERSONAS_YAML" \
+        --storage-state-dir "$storage_state_dir" --browsers-path "$browsers_path" \
+        --direct --output "$candidate" >/dev/null
+    mapfile -d '' real < <(first_real_command "$candidate")
+    rm -f "$candidate"
+
+    local cache="${DEPLOY_TARGET}/lazy-cache/playwright-mcp.json"
+    if [[ "$apply" -eq 0 ]]; then
+        log "lazy-cache: PLAN -- would run the real server once and write ${cache}"
+        log "lazy-cache: PLAN -- real command: ${real[*]}"
+        return 0
+    fi
+    if [[ ! -f "${DEPLOY_TARGET}/lazy-mcp-proxy.py" ]]; then
+        log "lazy-cache: ${DEPLOY_TARGET}/lazy-mcp-proxy.py absent -- run 'deploy --apply' first"
+        return 1
+    fi
+    mkdir -p "${DEPLOY_TARGET}/lazy-cache"
+    PLAYWRIGHT_BROWSERS_PATH="$browsers_path" python3 "${DEPLOY_TARGET}/lazy-mcp-proxy.py" \
+        --build-cache "$cache" -- "${real[@]}"
+}
+
+# ---------------------------------------------------------------------------
 # sudoers-install
 # ---------------------------------------------------------------------------
 cmd_sudoers_install() {
@@ -338,6 +413,7 @@ main() {
         dns) cmd_dns "$@" ;;
         provision-identity) cmd_provision_identity "$@" ;;
         deploy) cmd_deploy "$@" ;;
+        lazy-cache) cmd_lazy_cache "$@" ;;
         generate-config) cmd_generate_config "$@" ;;
         browser-install) cmd_browser_install "$@" ;;
         systemd-install) cmd_systemd_install "$@" ;;
@@ -346,12 +422,13 @@ main() {
             cmd_dns "$@"
             cmd_provision_identity "$@"
             cmd_deploy "$@"
+            cmd_lazy_cache "$@"
             cmd_generate_config "$@"
             cmd_systemd_install "$@"
             log "all: browser-install, sudoers-install intentionally NOT included -- separate explicit gates"
             ;;
         *)
-            echo "usage: bootstrap-browser-qa.sh {dns|provision-identity|deploy|generate-config|browser-install|systemd-install|sudoers-install|all} [--apply] [options]" >&2
+            echo "usage: bootstrap-browser-qa.sh {dns|provision-identity|deploy|lazy-cache|generate-config|browser-install|systemd-install|sudoers-install|all} [--apply] [options]" >&2
             return 2
             ;;
     esac

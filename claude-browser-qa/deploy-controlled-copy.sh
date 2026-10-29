@@ -44,6 +44,9 @@ RSYNC_ARGS=(
     --exclude="__pycache__/"
     --exclude="*.pyc"
     --exclude="package-lock.json.tmp"
+    # OPEN-209 (#369): built in the target by `bootstrap-browser-qa.sh lazy-cache`, kept
+    # across redeploys; a cache built for other arguments is ignored by the proxy itself.
+    --exclude="lazy-cache/"
 )
 
 if [[ "$apply" -eq 0 ]]; then

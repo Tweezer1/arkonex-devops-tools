@@ -739,6 +739,113 @@ retry_line="$( (grep -n 'next_elapse_retries="\${BROWSER_QA_NEXT_ELAPSE_RETRIES:
 [[ -n "$enable_line" && -n "$retry_line" && "$retry_line" -gt "$enable_line" ]] || rc=1
 check "T50_systemd_install_next_elapse_retry_bounded_and_scoped" "$rc"
 
+# ---------------------------------------------------------------------------
+# OPEN-209 (#369) -- lazy proxy and residue check. Fake MCP server, no browser, no network.
+# ---------------------------------------------------------------------------
+LZ="$TMP_ROOT/lazy"
+mkdir -p "$LZ"
+FAKE=(python3 "$CBQ_DIR/tests/fixtures/fake-mcp-server.py")
+
+echo "### T51 -- lazy proxy: cache built from the real (fake) server; initialize and tools/list served WITHOUT starting it; first tool call starts it once; session end stops it"
+FAKE_MCP_MARKER="$LZ/build.marker" python3 "$CBQ_DIR/lazy-mcp-proxy.py" \
+    --build-cache "$LZ/cache.json" -- "${FAKE[@]}" >/dev/null 2>&1
+rc=$?
+out51="$(python3 "$CBQ_DIR/tests/lazy_proxy_client.py" "$CBQ_DIR/lazy-mcp-proxy.py" "$LZ/cache.json" \
+    "$LZ/t51.marker" 2025-11-25 -- "${FAKE[@]}" 2>&1)" || rc=1
+echo "$out51"
+echo "$out51" | grep -qx 'initialize 2025-11-25 started=0' || rc=1
+echo "$out51" | grep -qx 'tools/list echo started=0' || rc=1
+echo "$out51" | grep -qx 'call1 echo:{"x": 1} started=1' || rc=1
+echo "$out51" | grep -qx 'call2 echo:{"x": 2} started=1' || rc=1
+echo "$out51" | grep -qx 'exit 0 stopped=1' || rc=1
+check "T51_lazy_proxy_starts_real_server_on_first_call_only" "$rc"
+
+echo "### T52 -- lazy proxy: missing cache = plain pass-through (real server started at once, same answers)"
+out52="$(python3 "$CBQ_DIR/tests/lazy_proxy_client.py" "$CBQ_DIR/lazy-mcp-proxy.py" "$LZ/absent.json" \
+    "$LZ/t52.marker" 2025-11-25 -- "${FAKE[@]}" 2>&1)"
+rc=$?
+echo "$out52" | grep -qx 'initialize 2025-11-25 started=1' || rc=1
+echo "$out52" | grep -qx 'call1 echo:{"x": 1} started=1' || rc=1
+echo "$out52" | grep -qx 'exit 0 stopped=1' || rc=1
+check "T52_lazy_proxy_without_cache_is_pass_through" "$rc"
+
+echo "### T53 -- lazy proxy: protocol version absent from the cache, or cache built for other arguments = pass-through"
+out53="$(python3 "$CBQ_DIR/tests/lazy_proxy_client.py" "$CBQ_DIR/lazy-mcp-proxy.py" "$LZ/cache.json" \
+    "$LZ/t53.marker" 2024-01-01 -- "${FAKE[@]}" 2>&1)"
+rc=$?
+echo "$out53" | grep -qx 'initialize 2024-01-01 started=1' || rc=1
+out53b="$(python3 "$CBQ_DIR/tests/lazy_proxy_client.py" "$CBQ_DIR/lazy-mcp-proxy.py" "$LZ/cache.json" \
+    "$LZ/t53b.marker" 2025-11-25 -- "${FAKE[@]}" --other-flag 2>&1)" || rc=1
+echo "$out53b" | grep -qx 'initialize 2025-11-25 started=1' || rc=1
+python3 "$CBQ_DIR/lazy-mcp-proxy.py" --check-cache "$LZ/cache.json" -- "${FAKE[@]}" >/dev/null || rc=1
+python3 "$CBQ_DIR/lazy-mcp-proxy.py" --check-cache "$LZ/cache.json" -- "${FAKE[@]}" --other-flag >/dev/null && rc=1
+# The storage-state argument alone never invalidates the cache (one cache for every persona).
+python3 "$CBQ_DIR/lazy-mcp-proxy.py" --check-cache "$LZ/cache.json" -- "${FAKE[@]}" --storage-state=/x/other.json >/dev/null || rc=1
+check "T53_lazy_proxy_falls_back_on_unknown_protocol_or_arguments" "$rc"
+
+echo "### T54 -- generated config: proxy by default (real pinned command intact after --), --direct = plain npx entries (rollback)"
+python3 "$CBQ_DIR/generate-mcp-config.py" --personas "$CBQ_DIR/personas.yaml" \
+    --storage-state-dir "$TMP_ROOT/storage-states" --deploy-dir /opt/x --output "$LZ/lazy.json" >/dev/null
+rc=$?
+python3 "$CBQ_DIR/generate-mcp-config.py" --personas "$CBQ_DIR/personas.yaml" \
+    --storage-state-dir "$TMP_ROOT/storage-states" --direct --output "$LZ/direct.json" >/dev/null || rc=1
+python3 -c "
+import json
+lazy = json.load(open('$LZ/lazy.json'))['mcpServers']
+direct = json.load(open('$LZ/direct.json'))['mcpServers']
+assert sorted(lazy) == sorted(direct) and lazy
+for name, entry in lazy.items():
+    assert entry['command'] == 'python3', name
+    a = entry['args']
+    assert a[:4] == ['/opt/x/lazy-mcp-proxy.py', '--cache', '/opt/x/lazy-cache/playwright-mcp.json', '--'], (name, a[:4])
+    assert a[4:] == [direct[name]['command'], *direct[name]['args']], name
+    assert entry['env'] == direct[name]['env'], name
+    assert direct[name]['command'] == 'npx', name
+print('proxy entries wrap exactly the direct entries for', len(lazy), 'server(s)')
+" || rc=1
+check "T54_generated_config_lazy_by_default_direct_on_request" "$rc"
+
+echo "### T55 -- redeploy keeps the lazy cache (excluded from the --delete mirror)"
+DEP55="$TMP_ROOT/deploy-lazy-cache"
+bash "$CBQ_DIR/deploy-controlled-copy.sh" --apply --target "$DEP55" >/dev/null 2>&1
+mkdir -p "$DEP55/lazy-cache" && echo '{}' > "$DEP55/lazy-cache/playwright-mcp.json"
+bash "$CBQ_DIR/deploy-controlled-copy.sh" --apply --target "$DEP55" >/dev/null 2>&1
+rc=$?
+[[ -f "$DEP55/lazy-cache/playwright-mcp.json" && -f "$DEP55/lazy-mcp-proxy.py" && -f "$DEP55/check-browser-residue.py" ]] || rc=1
+check "T55_redeploy_keeps_lazy_cache" "$rc"
+
+echo "### T56 -- check-browser-residue.py: read-only, status-shaped output, no command line or storage-state path printed"
+out56="$(python3 "$CBQ_DIR/check-browser-residue.py" --all 2>&1)"
+rc=$?
+echo "$out56" | grep -q '^BROWSERS_TOTAL=' || rc=1
+echo "$out56" | grep -qE 'storage-state|/var/lib/arkonex-browser-qa|--blocked-origins|TOKEN' && rc=1
+grep -nE '\b(kill|send_signal|terminate)\b|os\.kill|signal\.' "$CBQ_DIR/check-browser-residue.py" && rc=1
+check "T56_residue_check_read_only_and_status_shaped" "$rc"
+
+echo "### T57 -- lazy proxy: a real server that misses its handshake is stopped (whole process group), the call gets an error, the proxy does not hang"
+out57="$(cd "$LZ" && FAKE_MCP_MARKER="$LZ/t57.marker" FAKE_MCP_MUTE_INIT=1 LAZY_MCP_INIT_TIMEOUT=2 timeout 30 python3 - "$CBQ_DIR/lazy-mcp-proxy.py" "$LZ/cache.json" "${FAKE[@]}" <<'PY'
+import json, subprocess, sys
+proxy, cache, *real = sys.argv[1:]
+p = subprocess.Popen([sys.executable, proxy, "--cache", cache, "--", *real],
+                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+def rpc(i, method, params):
+    p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n")
+    p.stdin.flush()
+    return json.loads(p.stdout.readline())
+rpc(1, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+r = rpc(2, "tools/call", {"name": "echo", "arguments": {}})
+print("call", "error" if "error" in r else "ok")
+p.stdin.close(); p.wait(15)
+print("exit", p.returncode)
+PY
+)"
+rc=$?
+echo "$out57"
+echo "$out57" | grep -qx 'call error' || rc=1
+echo "$out57" | grep -qx 'exit 0' || rc=1
+grep -qx stop "$LZ/t57.marker" || rc=1   # the muted server was stopped (stdin closed)
+check "T57_lazy_proxy_stops_server_that_misses_handshake" "$rc"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"

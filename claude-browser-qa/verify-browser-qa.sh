@@ -40,6 +40,12 @@ else
             --output "$candidate" >/dev/null 2>&1; then
         if diff -q "$candidate" "$ACTIVE_MCP_JSON" >/dev/null 2>&1; then
             echo "ACTIVE_CONFIG=PASS"
+        elif python3 "${SCRIPT_DIR}/generate-mcp-config.py" --direct \
+                --personas "$PERSONAS_YAML" --storage-state-dir "$STORAGE_STATE_DIR" \
+                --output "$candidate" >/dev/null 2>&1 \
+             && diff -q "$candidate" "$ACTIVE_MCP_JSON" >/dev/null 2>&1; then
+            # OPEN-209: direct launch, activated on purpose as the rollback (generate-config --direct).
+            echo "ACTIVE_CONFIG=PASS (direct launch, without the lazy proxy)"
         else
             echo "ACTIVE_CONFIG=DRIFT"; fail
         fi
@@ -56,6 +62,29 @@ if [[ -f "$ACTIVE_MCP_JSON" ]] && grep -q '"@playwright/mcp@0\.0\.80"' "$ACTIVE_
 else
     echo "MCP_VERSION=FAIL"; fail
 fi
+
+echo "=== LAZY_PROXY (OPEN-209: deployed proxy + cache usable for the active config) ==="
+lazy_line="$(python3 - "$ACTIVE_MCP_JSON" 2>/dev/null <<'PY'
+import json, os, subprocess, sys
+servers = json.load(open(sys.argv[1]))["mcpServers"]
+entry = servers[sorted(servers)[0]]
+argv = [entry["command"], *entry["args"]]
+if "--" not in argv:
+    print("LAZY_PROXY=N/A (direct launch, no proxy)")
+    raise SystemExit(0)
+proxy, real = argv[1], argv[argv.index("--") + 1:]
+cache = argv[argv.index("--cache") + 1]
+if not os.path.isfile(proxy):
+    print("LAZY_PROXY=FAIL (proxy not deployed)")
+    raise SystemExit(1)
+rc = subprocess.run(["python3", proxy, "--check-cache", cache, "--", *real], capture_output=True).returncode
+print("LAZY_PROXY=PASS" if rc == 0 else "LAZY_PROXY=FAIL (cache missing or stale: bootstrap-browser-qa.sh lazy-cache --apply)")
+raise SystemExit(rc)
+PY
+)"
+lazy_rc=$?
+echo "${lazy_line:-LAZY_PROXY=FAIL (active config unreadable)}"
+[[ $lazy_rc -eq 0 && -n "$lazy_line" ]] || fail
 
 echo "=== BROWSER_VERSION ==="
 echo "BROWSER_VERSION=PENDING (BROWSER_INSTALL_EXACT_COMMAND not yet contracted, see OPEN-125 section 12)"
