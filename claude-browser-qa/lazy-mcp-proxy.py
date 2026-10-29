@@ -31,6 +31,7 @@ import argparse
 import hashlib
 import json
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -42,6 +43,7 @@ DEFAULT_PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26")
 INIT_ID = "open-209-lazy-init"
 LIST_ID = "open-209-lazy-list"
 CHILD_STOP_TIMEOUT_S = 10
+INIT_TIMEOUT_S = float(os.environ.get("LAZY_MCP_INIT_TIMEOUT", "120"))
 
 
 def args_key(command: list[str]) -> str:
@@ -104,14 +106,19 @@ class Proxy:
             if self.child is not None and self.child.poll() is None:
                 return
             self.init_done.clear()
+            # Own process group: npx runs npm -> sh -> node, and a forced stop must reach
+            # the whole chain, not npm alone.
             self.child = subprocess.Popen(
-                self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None
+                self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
+                start_new_session=True,
             )
             threading.Thread(target=self.pump_child, args=(self.child, handshake), daemon=True).start()
             if handshake:
                 self.send_child({"jsonrpc": "2.0", "id": INIT_ID, "method": "initialize",
                                  "params": self.client_init["params"]})
-                if not self.init_done.wait(120):
+                if not self.init_done.wait(INIT_TIMEOUT_S) or self.child.poll() is not None:
+                    self.stop_child()  # never keep a server that missed its handshake
+                    self.child = None
                     raise RuntimeError("real server did not answer initialize")
                 self.send_child({"jsonrpc": "2.0", "method": "notifications/initialized"})
             else:
@@ -138,14 +145,17 @@ class Proxy:
             child.stdin.close()
         except OSError:
             pass
-        try:
-            child.wait(CHILD_STOP_TIMEOUT_S)
-        except subprocess.TimeoutExpired:
-            child.terminate()
+        for sig in (None, signal.SIGTERM, signal.SIGKILL):
+            if sig is not None:
+                try:
+                    os.killpg(child.pid, sig)
+                except OSError:
+                    pass
             try:
                 child.wait(CHILD_STOP_TIMEOUT_S)
+                return
             except subprocess.TimeoutExpired:
-                child.kill()
+                continue
 
     # -- client -----------------------------------------------------------------
     def error(self, req_id, text: str) -> None:

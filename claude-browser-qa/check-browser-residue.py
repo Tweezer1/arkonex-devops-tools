@@ -8,9 +8,10 @@ the campaign that opened it (`browser_close`), stopping a session is the owner's
 Default (end of a campaign): checks the session that runs this command.
     RESIDUE=PASS  no browser left under this session
     RESIDUE=FAIL  at least one browser still open under this session (listed)
-A browser or MCP server whose session is gone (orphan) is reported as ORPHANS=WARN: it is
-nobody's campaign any more and normally stops by itself within a minute (observed
-2026-10-29); it does not fail the campaign check.
+An MCP server whose session is gone (orphan) is reported as ORPHANS=WARN: it normally
+stops by itself within a minute (observed 2026-10-29). A BROWSER still orphaned after the
+wait cannot be tied to any session, so it may be this campaign's: ORPHANS=FAIL, and the
+check fails. It is reported to the owner, never closed by the agent.
 
     check-browser-residue.py [--wait SECONDS]   # re-measure until PASS or timeout (default 30)
     check-browser-residue.py --all              # every session on the machine, informational, exit 0
@@ -68,7 +69,8 @@ def is_session_root(p: Proc) -> bool:
 
 def is_browser_main(p: Proc) -> bool:
     # Chromium rewrites the argv of its helpers into one space-joined string.
-    return p.comm == "chrome" and "--type=" not in " ".join(p.argv)
+    # comm is cut at 15 characters: "chrome-headless-shell" shows as "chrome-headless".
+    return p.comm in ("chrome", "chrome-headless") and "--type=" not in " ".join(p.argv)
 
 
 def is_mcp_server(p: Proc) -> bool:
@@ -199,6 +201,7 @@ def check_own(wait_s: int) -> int:
             return 2
         own = [b for b in browsers if session_of(b.pid, procs) is mine]
         orphans = [p for p in browsers + servers if session_of(p.pid, procs) is None]
+        orphan_browsers = [p for p in orphans if is_browser_main(p)]
         if not own and not orphans:
             break
         if time.monotonic() >= deadline:
@@ -208,12 +211,19 @@ def check_own(wait_s: int) -> int:
     print(f"=== RESIDUE (session {session_label(mine)}) ===")
     for b in own:
         print(f"BROWSER {describe_browser(b, procs)}")
-    if orphans:
+    if orphan_browsers:
+        names = sorted({persona_of(p.pid, procs) for p in orphan_browsers})
+        print(f"ORPHANS=FAIL ({len(orphan_browsers)} navigateur(s) sans session : {', '.join(names)}) "
+              "-- peut venir de cette campagne : à signaler au propriétaire, ne pas fermer soi-même")
+    elif orphans:
         names = sorted({persona_of(p.pid, procs) for p in orphans})
         print(f"ORPHANS=WARN ({len(orphans)} processus sans session : {', '.join(names)}) "
               "-- s'arrêtent normalement seuls en moins d'une minute ; à signaler s'ils persistent")
     else:
         print("ORPHANS=PASS")
+    if orphan_browsers and not own:
+        print("RESIDUE=FAIL (navigateur orphelin, voir ORPHANS)")
+        return 1
     if own:
         print(f"RESIDUE=FAIL ({len(own)} navigateur(s) encore ouvert(s) dans cette session : browser_close sur chaque persona listée)")
         return 1

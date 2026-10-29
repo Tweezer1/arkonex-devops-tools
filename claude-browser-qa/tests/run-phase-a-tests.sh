@@ -822,6 +822,30 @@ echo "$out56" | grep -qE 'storage-state|/var/lib/arkonex-browser-qa|--blocked-or
 grep -nE '\b(kill|send_signal|terminate)\b|os\.kill|signal\.' "$CBQ_DIR/check-browser-residue.py" && rc=1
 check "T56_residue_check_read_only_and_status_shaped" "$rc"
 
+echo "### T57 -- lazy proxy: a real server that misses its handshake is stopped (whole process group), the call gets an error, the proxy does not hang"
+out57="$(cd "$LZ" && FAKE_MCP_MARKER="$LZ/t57.marker" FAKE_MCP_MUTE_INIT=1 LAZY_MCP_INIT_TIMEOUT=2 timeout 30 python3 - "$CBQ_DIR/lazy-mcp-proxy.py" "$LZ/cache.json" "${FAKE[@]}" <<'PY'
+import json, subprocess, sys
+proxy, cache, *real = sys.argv[1:]
+p = subprocess.Popen([sys.executable, proxy, "--cache", cache, "--", *real],
+                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+def rpc(i, method, params):
+    p.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n")
+    p.stdin.flush()
+    return json.loads(p.stdout.readline())
+rpc(1, "initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "t", "version": "1"}})
+r = rpc(2, "tools/call", {"name": "echo", "arguments": {}})
+print("call", "error" if "error" in r else "ok")
+p.stdin.close(); p.wait(15)
+print("exit", p.returncode)
+PY
+)"
+rc=$?
+echo "$out57"
+echo "$out57" | grep -qx 'call error' || rc=1
+echo "$out57" | grep -qx 'exit 0' || rc=1
+grep -qx stop "$LZ/t57.marker" || rc=1   # the muted server was stopped (stdin closed)
+check "T57_lazy_proxy_stops_server_that_misses_handshake" "$rc"
+
 echo
 echo "=================================================="
 echo "TOTAL: $PASS passed, $FAIL failed"

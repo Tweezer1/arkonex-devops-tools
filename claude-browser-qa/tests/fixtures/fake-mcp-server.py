@@ -9,6 +9,8 @@ with open(marker, "a") as fh:
 for raw in sys.stdin:
     msg = json.loads(raw)
     method, mid = msg.get("method"), msg.get("id")
+    if method == "initialize" and os.environ.get("FAKE_MCP_MUTE_INIT"):
+        continue  # simulates a server that never completes its handshake
     if method == "initialize":
         res = {"protocolVersion": msg["params"]["protocolVersion"], "capabilities": {"tools": {}},
                "serverInfo": {"name": "fake", "version": "1"}}

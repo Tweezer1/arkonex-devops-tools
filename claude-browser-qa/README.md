@@ -483,8 +483,10 @@ Browser QA) :
    `RESIDUE=PASS` fait partie des preuves de la campagne.
 
 Le contrôle attend au plus 30 s (`--wait`) que les navigateurs finissent de se fermer.
-Un processus sans session (`ORPHANS=WARN`) est signalé sans faire échouer la campagne :
-il s'arrête normalement seul en moins d'une minute. `--all` liste toutes les sessions,
+Un serveur sans session (`ORPHANS=WARN`) est signalé sans faire échouer la campagne : il
+s'arrête normalement seul en moins d'une minute. Un navigateur sans session encore
+présent après l'attente fait échouer le contrôle (`ORPHANS=FAIL`) : il peut venir de la
+campagne. Il se signale au propriétaire et ne se ferme pas d'office. `--all` liste toutes les sessions,
 leurs personas chargées et leurs navigateurs, sans échec. Le contrôle ne ferme et
 n'interrompt jamais rien.
 
