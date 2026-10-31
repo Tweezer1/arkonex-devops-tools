@@ -25,7 +25,9 @@ d'échec, une ligne « indisponible ». Contexte pour l'agent seulement, jamais 
 Suivi des décisions (OPEN-170, Issue #195), même principe, requête distincte : lots
 open-lot actifs depuis 7 jours dont le résumé est plus ancien qu'une décision marquée
 [DÉCIDÉ-MÉTIER], et lignes « Reçu de #N … à intégrer » de leur tableau des décisions
-(docs/GOUVERNANCE-GITHUB-ISSUES.md §12).
+(docs/GOUVERNANCE-GITHUB-ISSUES.md §12). Depuis OPEN-215 (Issue #380), aussi les décisions
+consignées sans la ligne « Enrichit le Master Spec : … » (CLAUDE.md §0.2), à compter de
+l'entrée de cette règle dans main.
 
 Mode --compact (entrée SessionStart filtrée sur « compact ») : après une compaction, réinjecte
 la fiche de reprise du lot déclaré par /reprendre-lot pour cette session (reprendre_lot.py,
@@ -258,36 +260,77 @@ TRACE_DAYS = 7
 TRACE_MAX_ITEMS = 8
 MARKER = "DÉCIDÉ-MÉTIER"
 RECU = re.compile(r"(?m)^\|.*Reçu de #\d+.*\|\s*à intégrer\s*\|\s*$")
+ENRICH_RULE = "Enrichit le Master Spec :"
+ENRICH = re.compile(r"(?m)^\s*Enrichit le Master Spec\s*:\s*\S")
 TRACE_QUERY = """# trace-open170
 query($since: DateTime!) {
   repository(owner: "%s", name: "%s") {
     issues(states: OPEN, labels: ["open-lot"], first: 100, filterBy: {since: $since}) {
       nodes { number createdAt lastEditedAt body
-              comments(last: 20) { nodes { createdAt body } } }
+              comments(last: 100) { nodes { createdAt body url } } }
     }
   }
 }
 """ % (OWNER, DOCS_REPO)
 
 
+def first_line(comment):
+    return next((l for l in (comment.get("body") or "").splitlines() if l.strip()), "")
+
+
+def is_decision(comment):
+    return MARKER in first_line(comment)
+
+
+def enrich_since():
+    """Date (UTC) d'entrée dans main de la règle « Enrichit le Master Spec » de CLAUDE.md
+    (OPEN-215), ou None tant qu'elle n'y est pas. Premier commit de main, en suivant le premier
+    parent, qui ajoute la ligne : la fusion de sa PR, pas le commit de sa branche."""
+    rc, out = git("log", "--first-parent", "-m", "-S" + ENRICH_RULE, "--format=%cI", "main",
+                  "--", "CLAUDE.md")
+    if rc != 0 or not out:
+        return None
+    first = datetime.datetime.fromisoformat(out.splitlines()[-1].strip())
+    return first.astimezone(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def without_enrich_line(comments, since):
+    """Décisions consignées depuis `since` sans la ligne « Enrichit le Master Spec : … », ni
+    complément : un commentaire dont la première ligne commence par « Complément » et cite le
+    lien de la décision, et qui porte la ligne. Une autre décision qui cite la première et porte
+    sa propre ligne n'est pas un complément."""
+    complements = [first_line(c) for c in comments
+                   if first_line(c).lstrip("#*> ").startswith("Complément")
+                   and ENRICH.search(c.get("body") or "")]
+    return [c for c in comments
+            if c["createdAt"] >= since and is_decision(c)
+            and not ENRICH.search(c.get("body") or "")
+            and not (c.get("url") and any(c["url"] in line for line in complements))]
+
+
 def trace_items(now):
-    """Lecture seule. Renvoie ({Issue: (décisions après le résumé, dernière)}, {Issue: reçus})."""
+    """Lecture seule. Renvoie ({Issue: (décisions après le résumé, dernière)}, {Issue: reçus},
+    {Issue: décisions sans ligne « Enrichit le Master Spec »})."""
     deadline = time.monotonic() + float(os.environ.get("ARKONEX_TRACE_TIMEOUT", "6"))
     since = (now - datetime.timedelta(days=TRACE_DAYS)).strftime("%Y-%m-%dT%H:%M:%SZ")
     data = gh_graphql({"since": since}, deadline, TRACE_QUERY)
-    late, received = {}, {}
+    rule_since = enrich_since()
+    late, received, unmarked = {}, {}, {}
     for lot in data["repository"]["issues"]["nodes"]:
+        comments = lot["comments"]["nodes"]
         body_time = lot.get("lastEditedAt") or lot.get("createdAt") or ""
-        after = [c["createdAt"] for c in lot["comments"]["nodes"]
-                 if c["createdAt"] > body_time
-                 and MARKER in next((l for l in (c.get("body") or "").splitlines()
-                                     if l.strip()), "")]
+        after = [c["createdAt"] for c in comments
+                 if c["createdAt"] > body_time and is_decision(c)]
         if after:
             late[lot["number"]] = (len(after), max(after))
         count = len(RECU.findall(lot.get("body") or ""))
         if count:
             received[lot["number"]] = count
-    return late, received
+        if rule_since:
+            missing = without_enrich_line(comments, rule_since)
+            if missing:
+                unmarked[lot["number"]] = len(missing)
+    return late, received, unmarked
 
 
 def trace_text():
@@ -295,13 +338,13 @@ def trace_text():
         return ""
     now = datetime.datetime.now(datetime.timezone.utc)
     try:
-        late, received = trace_items(now)
+        late, received, unmarked = trace_items(now)
     except TimeoutError:
         return "Suivi des décisions (OPEN-170) indisponible (délai dépassé)."
     except Exception as exc:  # jamais bloquant
         return "Suivi des décisions (OPEN-170) indisponible ({}).".format(
             str(exc) if isinstance(exc, RuntimeError) else type(exc).__name__)
-    if not late and not received:
+    if not late and not received and not unmarked:
         return ("Suivi des décisions (OPEN-170) : aucun résumé en retard ni élément reçu à "
                 "intégrer (lots actifs depuis {} jours).".format(TRACE_DAYS))
 
@@ -317,9 +360,18 @@ def trace_text():
     if received:
         parts.append("éléments reçus à intégrer : {}".format(", ".join(
             cap(["#{} ({})".format(n, c) for n, c in sorted(received.items())]))))
-    return ("Suivi des décisions (OPEN-170) : " + " ; ".join(parts) + ". À signaler au "
+    if unmarked:
+        parts.append("décisions sans la ligne « Enrichit le Master Spec » (OPEN-215) : {}"
+                     .format(", ".join(cap(["#{} ({})".format(n, c)
+                                            for n, c in sorted(unmarked.items())]))))
+    text = ("Suivi des décisions (OPEN-170) : " + " ; ".join(parts) + ". À signaler au "
             "propriétaire en une ligne ; tenir le résumé à jour dans le même geste "
             "(docs/GOUVERNANCE-GITHUB-ISSUES.md §12).")
+    if unmarked:
+        text += (" Ligne manquante : la compléter par un commentaire « Complément à la "
+                 "[décision](lien) » qui porte la ligne, sans modifier la décision (§12.1, "
+                 "CLAUDE.md §0.2).")
+    return text
 
 
 def compact_text(stdin_text):

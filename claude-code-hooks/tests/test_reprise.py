@@ -13,7 +13,7 @@ import subprocess
 import time
 import unittest
 
-from test_session_install import Bench
+from test_session_install import Bench, git
 
 FAKE_GH = """#!/usr/bin/python3
 import os, sys, time
@@ -109,9 +109,11 @@ def fresh_response(updated):
 
 
 def trace_lot(number, last_edited, comments=(), body=""):
+    """comments : (date, texte) ou (date, texte, lien du commentaire)."""
+    nodes = [dict({"createdAt": c[0], "body": c[1]}, **({"url": c[2]} if len(c) > 2 else {}))
+             for c in comments]
     return {"number": number, "createdAt": "2026-09-01T00:00:00Z", "lastEditedAt": last_edited,
-            "body": body,
-            "comments": {"nodes": [{"createdAt": at, "body": text} for at, text in comments]}}
+            "body": body, "comments": {"nodes": nodes}}
 
 
 def trace_response(*lots):
@@ -280,6 +282,85 @@ class Reprise(Bench):
     def test_trace_can_be_switched_off(self):
         _, ctx = self.start(trace_response(), ARKONEX_TRACE="off")
         self.assertNotIn("Suivi des décisions", ctx)
+
+    # --- ligne « Enrichit le Master Spec » (OPEN-215, Issue #380) --------------------------
+
+    RULE = "- chaque décision porte la ligne « Enrichit le Master Spec : non » ou « … : §x.y »\n"
+
+    def commit_rule(self, date, branch=None, merge_date=None):
+        """Ajoute la règle à CLAUDE.md du faux docs, sur main ou par la fusion d'une branche."""
+        dated = dict(os.environ, GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date)
+        if branch:
+            git("switch", "-q", "-c", branch, cwd=self.docs)
+        with open(os.path.join(self.docs, "CLAUDE.md"), "a", encoding="utf-8") as fh:
+            fh.write(self.RULE)
+        git("add", "CLAUDE.md", cwd=self.docs)
+        subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                        "-m", "règle"], cwd=self.docs, env=dated, check=True)
+        if branch:
+            git("switch", "-q", "main", cwd=self.docs)
+            subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", "merge", "-q",
+                            "--no-ff", "-m", "fusion", branch], cwd=self.docs, check=True,
+                           env=dict(os.environ, GIT_AUTHOR_DATE=merge_date,
+                                    GIT_COMMITTER_DATE=merge_date))
+        git("push", "-q", "origin", "main", cwd=self.docs)
+
+    def unmarked_data(self):
+        d = "## [DÉCIDÉ-MÉTIER — 2026-10-31] {}\n\nTexte.\n"
+        c = U + "380#issuecomment-"
+        return trace_response(
+            trace_lot(380, "2026-10-31T23:00:00Z", comments=[
+                ("2026-10-31T11:00:00Z", d.format("avant la règle, sans ligne")),
+                ("2026-10-31T13:00:00Z", d.format("marquée") + "\nEnrichit le Master Spec : non"),
+                ("2026-10-31T13:10:00Z", d.format("complétée ensuite"), c + "3"),
+                ("2026-10-31T13:20:00Z", "Complément à la [décision](" + c + "3)\n\n"
+                 "Enrichit le Master Spec : §5.3 — classe de l'estimation", c + "4"),
+                ("2026-10-31T13:30:00Z", d.format("règle citée dans une phrase seulement")
+                 + "La ligne « Enrichit le Master Spec : non » est requise.", c + "5"),
+                ("2026-10-31T13:40:00Z", d.format("ligne vide") + "\nEnrichit le Master Spec :",
+                 c + "6"),
+                ("2026-10-31T13:50:00Z", "## Compte rendu d'essai\n\nSans décision.", c + "7"),
+                ("2026-10-31T14:00:00Z", d.format("lien cité sans ligne"), c + "8"),
+                ("2026-10-31T14:10:00Z", "Voir la [décision](" + c + "8).", c + "9"),
+                ("2026-10-31T14:20:00Z", d.format("précise la [décision](" + c + "8)")
+                 + "\nEnrichit le Master Spec : non", c + "10"),
+                ("2026-10-31T14:30:00Z", "Complément d'essai\n\nSuite de la [décision]("
+                 + c + "6).\n\nEnrichit le Master Spec : non", c + "11")]),
+            trace_lot(375, "2026-10-31T23:00:00Z", comments=[
+                ("2026-10-31T15:00:00Z", d.format("marquée") + "\n Enrichit le Master Spec : "
+                 "§5.2 — estimation sans client")]))
+
+    def test_decisions_without_enrichment_line_are_flagged_once_the_rule_is_in_main(self):
+        self.commit_rule("2026-10-31T12:00:00Z")
+        self.commit_rule("2026-10-31T23:30:00Z")  # retouche ultérieure : la date reste la première
+        out, ctx = self.start(self.unmarked_data())
+        self.assertNotIn("systemMessage", out)
+        self.assertIn("décisions sans la ligne « Enrichit le Master Spec » (OPEN-215) : "
+                      "#380 (3)", ctx)
+        self.assertNotIn("#375 (", ctx)
+        self.assertIn("« Complément à la [décision](lien) »", ctx)
+        self.assertIn("sans modifier la décision", ctx)
+
+    def test_nothing_flagged_while_the_rule_is_not_in_main(self):
+        _, ctx = self.start(self.unmarked_data())
+        self.assertNotIn("Enrichit le Master Spec", ctx)
+
+    def test_rule_date_is_the_merge_into_main_not_the_branch_commit(self):
+        self.commit_rule("2026-10-31T10:00:00Z", branch="lot/regle",
+                         merge_date="2026-10-31T14:00:00+00:00")
+        d = "## [DÉCIDÉ-MÉTIER — 2026-10-31] {}\n\nTexte.\n"
+        data = trace_response(trace_lot(380, "2026-10-31T23:00:00Z", comments=[
+            ("2026-10-31T12:00:00Z", d.format("avant la fusion")),
+            ("2026-10-31T15:00:00Z", d.format("après la fusion"))]))
+        _, ctx = self.start(data)
+        self.assertIn("(OPEN-215) : #380 (1)", ctx)
+
+    def test_complete_lot_reports_nothing_new(self):
+        self.commit_rule("2026-10-31T12:00:00Z")
+        d = "## [DÉCIDÉ-MÉTIER — 2026-10-31] x\n\nTexte.\n\nEnrichit le Master Spec : non"
+        _, ctx = self.start(trace_response(trace_lot(380, "2026-10-31T23:00:00Z",
+                                                     comments=[("2026-10-31T13:00:00Z", d)])))
+        self.assertIn("aucun résumé en retard ni élément reçu à intégrer", ctx)
 
     # --- installation --------------------------------------------------------------------
 
