@@ -102,9 +102,25 @@ requête distincte, bornée à 6 s. Parmi les lots `open-lot` actifs depuis 7 jo
 - ceux dont le résumé (le corps de l'Issue) est plus ancien qu'un commentaire de décision
   marqué `[DÉCIDÉ-MÉTIER — …]` ;
 - les lignes « Reçu de #N … — à intégrer » de leur tableau des décisions
-  (`docs/GOUVERNANCE-GITHUB-ISSUES.md` §12).
+  (`docs/GOUVERNANCE-GITHUB-ISSUES.md` §12) ;
+- depuis `OPEN-215` ([Issue #380](https://github.com/Tweezer1/arkonex-ops-docs/issues/380)),
+  les décisions consignées sans la ligne « Enrichit le Master Spec : … » (`docs/CLAUDE.md`
+  §0.2), garantie demandée par le propriétaire contre l'oubli de cette mention.
+  - **À partir de quand** : de l'entrée de la règle dans `main` de la copie `docs`. C'est le
+    premier commit de `main`, en suivant le premier parent, qui ajoute la ligne à
+    `CLAUDE.md` : la date de fusion de sa PR, pas celle de sa branche. Tant que la règle n'y
+    est pas, rien n'est relevé.
+  - **Décision couverte** : par sa propre ligne, ou par un complément. Un complément est un
+    commentaire dont la première ligne commence par « Complément » et cite le lien de la
+    décision, et qui porte la ligne. Une autre décision qui la cite n'est pas un complément.
 
 Le résultat va à l'agent seulement. Variables : `ARKONEX_TRACE=off`, `ARKONEX_TRACE_TIMEOUT`.
+Chaque lot est lu avec ses 100 derniers commentaires, le maximum d'une page GitHub. La
+fenêtre était de 20 avant `OPEN-215` : une décision suivie de plus de 20 commentaires échappait
+au suivi (cas de #363 le 2026-10-31). Coût mesuré sur DEV le 2026-10-31, pour 26 lots actifs :
+requête 1,7 s au lieu de 1,1 s ; contrôle complet 3,9 s avec l'ancienne fenêtre. Une décision
+suivie de plus de 100 commentaires avant la session suivante échappe encore au rappel : la
+vérification à la fermeture du lot la rattrape (`docs/CLAUDE.md` §0.2).
 
 **Après une compaction** : une seconde entrée `SessionStart`, filtrée sur `compact`, appelle
 `session_start.py --compact`.
@@ -234,7 +250,11 @@ Retour arrière, restauration à l'identique (empreintes vérifiées) :
   - un corps sans tableau ;
   - l'échec et le délai dépassé, jamais bloquants ;
   - la réinjection après compaction, avec une Issue changée ou inchangée, et sans lot déclaré ;
-  - l'installation du skill et de l'entrée `compact`.
+  - l'installation du skill et de l'entrée `compact` ;
+  - la ligne « Enrichit le Master Spec » (OPEN-215) : décision marquée ou non, complétée ou
+    non, règle citée dans une phrase seulement, ligne vide, autre décision qui cite la
+    première, règle absente de `main`, date de la fusion et non de la branche. Huit ruptures
+    volontaires, toutes détectées.
 - `test_coherence.py` (OPEN-204) : chaque famille trouvée dans le code et jamais dans un
   commentaire ni un fichier d'essai ; marque `arkonex-coherence:` ; liste de référence
   (compte d'occurrences, raison obligatoire) ; trois passages, même verdict ; règle
